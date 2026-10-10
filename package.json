@@ -2,6 +2,7 @@
   "private": true,
   "type": "module",
   "devDependencies": {
+    "@types/three": "^0.186.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vite-plugin-ruby": "^5.2.5"
@@ -12,6 +13,7 @@
   "dependencies": {
     "@hotwired/stimulus": "^3.2.2",
     "@hotwired/turbo-rails": "^8.0.23",
-    "stimulus-vite-helpers": "^3.1.0"
+    "stimulus-vite-helpers": "^3.1.0",
+    "three": "^0.186.1"
   }
 }
