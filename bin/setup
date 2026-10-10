@@ -14,6 +14,9 @@ FileUtils.chdir APP_ROOT do
 
   puts "== Installing dependencies =="
   system("bundle check") || system!("bundle install")
+  # lockfile 通りに入れる（Ruby から呼ぶ npm には safe-chain のシェル関数が効かないため、
+  # バージョン解決はシェルの npm install で行い、ここでは解決済みの lockfile だけを使う）
+  system!("npm ci")
 
   # puts "\n== Copying sample files =="
   # unless File.exist?("config/database.yml")
