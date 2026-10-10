@@ -46,3 +46,5 @@ end
 gem "rspec-rails", "~> 8.0", groups: [ :development, :test ]
 
 gem "vite_rails", "~> 3.11"
+
+gem "turbo-rails", "~> 2.0"
