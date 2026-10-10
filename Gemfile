@@ -44,3 +44,5 @@ group :development do
 end
 
 gem "rspec-rails", "~> 8.0", groups: [ :development, :test ]
+
+gem "vite_rails", "~> 3.11"
