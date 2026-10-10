@@ -49,3 +49,7 @@
 # Ignore Docker-related files
 /.dockerignore
 /Dockerfile*
+
+# Ignore Vite build output and throwaway experiments.
+/public/vite*
+/spikes
