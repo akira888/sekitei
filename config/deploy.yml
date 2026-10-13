@@ -5,9 +5,11 @@ service: sekitei
 image: sekitei
 
 # Deploy to these servers.
+# The host is read from the environment so it is not published in this public repository
+# (set SEKITEI_HOST in .envrc, which is git-ignored).
 servers:
   web:
-    - 192.168.0.1
+    - <%= ENV.fetch("SEKITEI_HOST") %>
   # job:
   #   hosts:
   #     - 192.168.0.1
@@ -82,9 +84,9 @@ builder:
   #   - GITHUB_TOKEN
   #   - RAILS_MASTER_KEY
 
-# Use a different ssh user than root
-# ssh:
-#   user: app
+# Root login is disabled on the server; deploy is in the docker group
+ssh:
+  user: deploy
 
 # Use accessory services (secrets come from .kamal/secrets).
 # accessories:
