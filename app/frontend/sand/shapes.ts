@@ -1,0 +1,118 @@
+import type { Point } from './path'
+import type { RakeStyle } from './rake'
+
+// 図形パラメータ → レーキ軌跡パスの変換。DOM に依存しない純粋関数だけを置く。
+// 図形は m 単位で持ち（scene JSON に保存する値）、ここでハイトマップのマスに換算する。
+// 座標は庭の左上が原点で、x は庭の幅の方向、y は奥行きの方向（ハイトマップの行の向き）
+
+export type Rake = {
+  tines: number // 歯の数
+  spacing: number // 歯の間隔[m]
+}
+
+export type StraightShape = {
+  type: 'straight'
+  angle: number // 線の向き[度]。0 で x 方向、90 で y 方向
+  rake: Rake
+}
+
+export type ConcentricShape = {
+  type: 'concentric'
+  center: Point // [m]
+  innerRadius: number // 一番内側の帯の内縁の半径[m]（石の周りに残す余白）
+  rings: number // 輪の数
+  rake: Rake
+}
+
+export type Shape = StraightShape | ConcentricShape
+
+export type Garden = { width: number; depth: number } // [m]
+
+// 1本のパスと、それを掻くレーキ（マス単位）。配列の順番が掻く順番
+export type Stroke = { path: Point[]; style: RakeStyle }
+
+const STEP = 2 // パスの点の間隔[マス]
+
+export function shapeToStrokes(shape: Shape, garden: Garden, cellsPerMeter: number): Stroke[] {
+  const style = rakeStyle(shape.rake, cellsPerMeter)
+  const band = style.tines * style.spacing // レーキ1往路で掻ける帯の幅[マス]
+  switch (shape.type) {
+    case 'straight':
+      return straightPaths(shape.angle, garden.width * cellsPerMeter, garden.depth * cellsPerMeter, band)
+        .map((path) => ({ path, style }))
+    case 'concentric': {
+      const center = { x: shape.center.x * cellsPerMeter, y: shape.center.y * cellsPerMeter }
+      const inner = shape.innerRadius * cellsPerMeter
+      return Array.from({ length: shape.rings }, (_, i) => ({
+        path: circlePath(center, inner + band / 2 + i * band, band),
+        style,
+      }))
+    }
+  }
+}
+
+// 溝・盛り・深さは、spike で決めた基準値（間隔 12 に対し 溝 5 / 盛り 7 / 深さ 1.5）の比率で決める
+function rakeStyle(rake: Rake, cellsPerMeter: number): RakeStyle {
+  const spacing = rake.spacing * cellsPerMeter
+  return {
+    tines: rake.tines,
+    spacing,
+    grooveWidth: (spacing * 5) / 12,
+    pileWidth: (spacing * 7) / 12,
+    depth: (spacing * 1.5) / 12,
+  }
+}
+
+// 平行な直線を帯の幅ずつずらして、W × H の庭全体に敷き詰める。行きと帰りで向きを交互に変える
+function straightPaths(angleDeg: number, W: number, H: number, band: number): Point[][] {
+  const a = (angleDeg * Math.PI) / 180
+  const dir = { x: Math.cos(a), y: Math.sin(a) }
+  const normal = { x: -dir.y, y: dir.x }
+  const offsets = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: 0, y: H }, { x: W, y: H }].map((c) => c.x * normal.x + c.y * normal.y)
+  const min = Math.min(...offsets), max = Math.max(...offsets)
+
+  const paths: Point[][] = []
+  for (let o = min + band / 2; o - band / 2 < max; o += band) {
+    const origin = { x: normal.x * o, y: normal.y * o }
+    const span = clipToRect(origin, dir, W, H)
+    if (!span) continue
+    const path = segment(origin, dir, span[0], span[1])
+    paths.push(paths.length % 2 === 0 ? path : path.reverse())
+  }
+  return paths
+}
+
+// 直線 origin + t * dir が矩形 [0, W] × [0, H] の中にある t の範囲（Liang–Barsky）
+function clipToRect(origin: Point, dir: Point, W: number, H: number): [number, number] | undefined {
+  let t0 = -Infinity, t1 = Infinity
+  for (const [p, d, hi] of [[origin.x, dir.x, W], [origin.y, dir.y, H]] as const) {
+    if (Math.abs(d) < 1e-12) {
+      if (p < 0 || p > hi) return undefined
+      continue
+    }
+    const a = (0 - p) / d, b = (hi - p) / d
+    t0 = Math.max(t0, Math.min(a, b))
+    t1 = Math.min(t1, Math.max(a, b))
+  }
+  return t1 > t0 ? [t0, t1] : undefined
+}
+
+// t0 から t1 まで STEP 間隔で点を打つ。最後の点は t1 ちょうど
+function segment(origin: Point, dir: Point, t0: number, t1: number): Point[] {
+  const at = (t: number) => ({ x: origin.x + dir.x * t, y: origin.y + dir.y * t })
+  const points: Point[] = []
+  for (let t = t0; t < t1; t += STEP) points.push(at(t))
+  points.push(at(t1))
+  return points
+}
+
+// 一周を越えて overlap[マス] ぶん余分に掻く。始点と終点の切れ目を、同じ溝を掻き直して消すため
+function circlePath(center: Point, radius: number, overlap: number): Point[] {
+  const length = 2 * Math.PI * radius + overlap
+  const stepAngle = STEP / radius
+  const n = Math.ceil(length / STEP)
+  return Array.from({ length: n + 1 }, (_, i) => {
+    const angle = Math.min(i * stepAngle, length / radius)
+    return { x: center.x + radius * Math.cos(angle), y: center.y + radius * Math.sin(angle) }
+  })
+}
