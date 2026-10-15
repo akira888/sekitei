@@ -8,14 +8,22 @@ import {
   WebGLRenderer,
 } from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
-import type { Point } from "../sand/path"
-import { SandField, rakeField, type RakeStyle } from "../sand/rake"
+import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh } from "../sand/sand_mesh"
+import { shapeToStrokes, type Rake, type Shape } from "../sand/shapes"
 
 // 庭の実寸[m] とハイトマップの解像度（1マス ≒ 4mm）。#5 時点の仮の値
 const GARDEN = { width: 4, depth: 2 }
 const FIELD = { width: 1024, height: 512 }
-const RAKE: RakeStyle = { tines: 5, spacing: 12, depth: 1.5, grooveWidth: 5, pileWidth: 7 }
+const CELLS_PER_METER = FIELD.width / GARDEN.width
+
+// 確認用の砂紋: 横の直線を敷き詰め、その上に同心円を掻く。配列の順番がレイヤー順（後ろほど上）。
+// 図形を画面から編集できるようになったら（#7）、ここは保存された scene から読む形に置き換わる
+const RAKE: Rake = { tines: 5, spacing: 0.05 }
+const DEMO_SHAPES: Shape[] = [
+  { type: "straight", angle: 0, rake: RAKE },
+  { type: "concentric", center: { x: 2.75, y: 1 }, innerRadius: 0.1, rings: 3, rake: RAKE },
+]
 
 // Three.js のシーンを要素にマウントする。
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
@@ -90,34 +98,13 @@ export default class extends Controller<HTMLElement> {
     this.disposables = []
   }
 
-  // 確認用の砂紋: 横の直線を敷き詰め、その上に同心円を掻く。#6 の図形 → パス変換ができたら差し替える
   private demoField(): SandField {
     const field = new SandField(FIELD.width, FIELD.height)
-    const band = RAKE.tines * RAKE.spacing
-    for (let y = band / 2; y < FIELD.height; y += band) {
-      rakeField(field, line({ x: 0, y }, { x: FIELD.width, y }), RAKE)
-    }
-    for (const radius of [60, 60 + band, 60 + band * 2]) {
-      rakeField(field, circle({ x: 700, y: 256 }, radius), RAKE)
+    for (const shape of DEMO_SHAPES) {
+      for (const { path, style } of shapeToStrokes(shape, GARDEN, CELLS_PER_METER)) {
+        rakeField(field, path, style)
+      }
     }
     return field
   }
-}
-
-const STEP = 2 // パスの点の間隔[マス]
-
-function line(from: Point, to: Point): Point[] {
-  const n = Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / STEP)
-  return Array.from({ length: n + 1 }, (_, i) => ({
-    x: from.x + ((to.x - from.x) * i) / n,
-    y: from.y + ((to.y - from.y) * i) / n,
-  }))
-}
-
-function circle(center: Point, radius: number): Point[] {
-  const n = Math.ceil((2 * Math.PI * radius) / STEP)
-  return Array.from({ length: n + 1 }, (_, i) => ({
-    x: center.x + radius * Math.cos((2 * Math.PI * i) / n),
-    y: center.y + radius * Math.sin((2 * Math.PI * i) / n),
-  }))
 }
