@@ -11,6 +11,7 @@ CI.run do
   step "Types: TypeScript", "npm run typecheck"
 
   step "Tests: RSpec", "bundle exec rspec"
+  step "Tests: Vitest", "npm test"
 
 
   # Optional: set a green GitHub commit status to unblock PR merge.
