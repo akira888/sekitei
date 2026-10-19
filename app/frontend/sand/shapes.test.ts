@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shapeToStrokes, type Rake } from './shapes'
+import { shapeToStrokes, type Rake, type StraightShape } from './shapes'
 import type { Point } from './path'
 
 // 庭 4m × 2m、1m = 100マス → 400 × 200 マス
@@ -10,10 +10,14 @@ const rake: Rake = { tines: 3, spacing: 0.1 }
 
 const dist = (a: Point, b: Point) => Math.hypot(b.x - a.x, b.y - a.y)
 const gaps = (path: Point[]) => path.slice(1).map((p, i) => dist(path[i], p))
+// 庭の中央を通る水平な帯 1本を基本に、テストごとに一部の値だけ変える
+const straight = (overrides: Partial<StraightShape>): StraightShape => ({
+  type: 'straight', position: { x: 2, y: 1 }, angle: 0, rows: 1, rake, ...overrides,
+})
 
 describe('shapeToStrokes', () => {
   it('レーキの寸法を m からマスに換算し、溝・盛り・深さは歯の間隔の比率で決める', () => {
-    const [{ style }] = shapeToStrokes({ type: 'straight', angle: 0, rake }, garden, cellsPerMeter)
+    const [{ style }] = shapeToStrokes(straight({}), garden, cellsPerMeter)
 
     expect(style.tines).toBe(3)
     expect(style.spacing).toBeCloseTo(10)
@@ -23,39 +27,52 @@ describe('shapeToStrokes', () => {
   })
 
   describe('直線', () => {
-    it('角度 0 なら水平な線を、帯の幅ずつずらして庭全体に敷き詰める', () => {
-      const strokes = shapeToStrokes({ type: 'straight', angle: 0, rake }, garden, cellsPerMeter)
+    it('position を中心に、rows 本の帯を帯の幅ずつずらして並べる', () => {
+      const ysOf = (rows: number) =>
+        shapeToStrokes(straight({ rows }), garden, cellsPerMeter).map(({ path }) => path[0].y)
 
-      const ys = strokes.map(({ path }) => path[0].y)
-      expect(ys).toEqual([15, 45, 75, 105, 135, 165, 195])
-      for (const { path } of strokes) {
+      expect(ysOf(3)).toEqual([70, 100, 130])
+      expect(ysOf(2)).toEqual([85, 115])
+      for (const { path } of shapeToStrokes(straight({ rows: 3 }), garden, cellsPerMeter)) {
         for (const p of path) expect(p.y).toBeCloseTo(path[0].y)
       }
     })
 
-    it('庭の端から端まで掻き、行きと帰りで向きを交互に変える', () => {
-      const [first, second] = shapeToStrokes({ type: 'straight', angle: 0, rake }, garden, cellsPerMeter)
+    it('帯は庭の端から端まで走り、行きと帰りで向きを交互に変える', () => {
+      // 帯の半分が庭に掛かる線も掻けるよう、庭を帯の幅の半分（15マス）広げた範囲まで線を引く
+      const [first, second] = shapeToStrokes(straight({ rows: 2 }), garden, cellsPerMeter)
 
-      expect(first.path[0].x).toBeCloseTo(0)
-      expect(first.path.at(-1)!.x).toBeCloseTo(400)
-      expect(second.path[0].x).toBeCloseTo(400)
-      expect(second.path.at(-1)!.x).toBeCloseTo(0)
+      expect(first.path[0].x).toBeCloseTo(-15)
+      expect(first.path.at(-1)!.x).toBeCloseTo(415)
+      expect(second.path[0].x).toBeCloseTo(415)
+      expect(second.path.at(-1)!.x).toBeCloseTo(-15)
     })
 
-    it('斜めの線でも点は庭の外に出ず、帯は庭の四隅まで届く', () => {
-      const strokes = shapeToStrokes({ type: 'straight', angle: 30, rake }, garden, cellsPerMeter)
+    it('斜めの線でも、点は庭を帯の幅の半分広げた範囲の外に出ない', () => {
+      const strokes = shapeToStrokes(straight({ angle: 30, rows: 20 }), garden, cellsPerMeter)
+
+      for (const p of strokes.flatMap(({ path }) => path)) {
+        expect(p.x).toBeGreaterThanOrEqual(-15 - 1e-6)
+        expect(p.x).toBeLessThanOrEqual(415 + 1e-6)
+        expect(p.y).toBeGreaterThanOrEqual(-15 - 1e-6)
+        expect(p.y).toBeLessThanOrEqual(215 + 1e-6)
+      }
+    })
+
+    it('rows を十分に大きくすれば、斜めでも帯が庭の四隅まで届く（敷き詰めになる）', () => {
+      const strokes = shapeToStrokes(straight({ angle: 30, rows: 20 }), garden, cellsPerMeter)
 
       const points = strokes.flatMap(({ path }) => path)
-      for (const p of points) {
-        expect(p.x).toBeGreaterThanOrEqual(-1e-6)
-        expect(p.x).toBeLessThanOrEqual(400 + 1e-6)
-        expect(p.y).toBeGreaterThanOrEqual(-1e-6)
-        expect(p.y).toBeLessThanOrEqual(200 + 1e-6)
-      }
       for (const corner of [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 0, y: 200 }, { x: 400, y: 200 }]) {
         const nearest = Math.min(...points.map((p) => dist(p, corner)))
-        expect(nearest).toBeLessThanOrEqual(30) // 帯の幅以内に線が来ていれば隅も掻ける
+        expect(nearest).toBeLessThanOrEqual(15 + 1) // 帯の半分以内に線が来ていれば隅も掻ける（+1 は点の間隔の誤差）
       }
+    })
+
+    it('庭に掛からない帯は出力しない', () => {
+      // 帯の中心が y = 210 なら帯（195〜225）の一部が庭に掛かる。y = 220 なら掛からない
+      expect(shapeToStrokes(straight({ position: { x: 2, y: 2.1 }, rows: 1 }), garden, cellsPerMeter)).toHaveLength(1)
+      expect(shapeToStrokes(straight({ position: { x: 2, y: 2.2 }, rows: 1 }), garden, cellsPerMeter)).toHaveLength(0)
     })
   })
 
@@ -83,7 +100,7 @@ describe('shapeToStrokes', () => {
 
   it('どの図形もパスの点は、両端の1区間を除いて 2マス間隔で並ぶ', () => {
     const strokes = [
-      ...shapeToStrokes({ type: 'straight', angle: 30, rake }, garden, cellsPerMeter),
+      ...shapeToStrokes(straight({ angle: 30, rows: 5 }), garden, cellsPerMeter),
       ...shapeToStrokes({ type: 'concentric', center: { x: 2, y: 1 }, innerRadius: 0.2, rings: 2, rake }, garden, cellsPerMeter),
     ]
     for (const { path } of strokes) {

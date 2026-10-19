@@ -10,9 +10,12 @@ export type Rake = {
   spacing: number // 歯の間隔[m]
 }
 
+// 庭の端から端まで走る帯を rows 本並べる。rows を十分に大きくすれば庭全体の敷き詰めになる
 export type StraightShape = {
   type: 'straight'
+  position: Point // 帯の束の中心線上の1点[m]
   angle: number // 線の向き[度]。0 で x 方向、90 で y 方向
+  rows: number // 並べる帯の本数。position を中心に両側へ均等に並べる
   rake: Rake
 }
 
@@ -37,9 +40,11 @@ export function shapeToStrokes(shape: Shape, garden: Garden, cellsPerMeter: numb
   const style = rakeStyle(shape.rake, cellsPerMeter)
   const band = style.tines * style.spacing // レーキ1往路で掻ける帯の幅[マス]
   switch (shape.type) {
-    case 'straight':
-      return straightPaths(shape.angle, garden.width * cellsPerMeter, garden.depth * cellsPerMeter, band)
-        .map((path) => ({ path, style }))
+    case 'straight': {
+      const position = { x: shape.position.x * cellsPerMeter, y: shape.position.y * cellsPerMeter }
+      const W = garden.width * cellsPerMeter, H = garden.depth * cellsPerMeter
+      return straightPaths(position, shape.angle, shape.rows, W, H, band).map((path) => ({ path, style }))
+    }
     case 'concentric': {
       const center = { x: shape.center.x * cellsPerMeter, y: shape.center.y * cellsPerMeter }
       const inner = shape.innerRadius * cellsPerMeter
@@ -63,18 +68,21 @@ function rakeStyle(rake: Rake, cellsPerMeter: number): RakeStyle {
   }
 }
 
-// 平行な直線を帯の幅ずつずらして、W × H の庭全体に敷き詰める。行きと帰りで向きを交互に変える
-function straightPaths(angleDeg: number, W: number, H: number, band: number): Point[][] {
+// position を中心に、平行な直線を帯の幅ずつずらして rows 本引く。行きと帰りで向きを交互に変える。
+// 中心線が庭の外でも帯の半分が庭に掛かることがあるので、庭を帯の幅の半分広げた範囲まで線を引く
+// （範囲外のマスは掻く処理の側で無視される）。範囲に掛からない帯は出さない
+function straightPaths(position: Point, angleDeg: number, rows: number, W: number, H: number, band: number): Point[][] {
   const a = (angleDeg * Math.PI) / 180
   const dir = { x: Math.cos(a), y: Math.sin(a) }
   const normal = { x: -dir.y, y: dir.x }
-  const offsets = [{ x: 0, y: 0 }, { x: W, y: 0 }, { x: 0, y: H }, { x: W, y: H }].map((c) => c.x * normal.x + c.y * normal.y)
-  const min = Math.min(...offsets), max = Math.max(...offsets)
+  const margin = band / 2
+  const bounds = { x0: -margin, y0: -margin, x1: W + margin, y1: H + margin }
 
   const paths: Point[][] = []
-  for (let o = min + band / 2; o - band / 2 < max; o += band) {
-    const origin = { x: normal.x * o, y: normal.y * o }
-    const span = clipToRect(origin, dir, W, H)
+  for (let i = 0; i < rows; i++) {
+    const offset = (i - (rows - 1) / 2) * band
+    const origin = { x: position.x + normal.x * offset, y: position.y + normal.y * offset }
+    const span = clipToRect(origin, dir, bounds)
     if (!span) continue
     const path = segment(origin, dir, span[0], span[1])
     paths.push(paths.length % 2 === 0 ? path : path.reverse())
@@ -82,15 +90,17 @@ function straightPaths(angleDeg: number, W: number, H: number, band: number): Po
   return paths
 }
 
-// 直線 origin + t * dir が矩形 [0, W] × [0, H] の中にある t の範囲（Liang–Barsky）
-function clipToRect(origin: Point, dir: Point, W: number, H: number): [number, number] | undefined {
+type Rect = { x0: number; y0: number; x1: number; y1: number }
+
+// 直線 origin + t * dir が矩形の中にある t の範囲（Liang–Barsky）
+function clipToRect(origin: Point, dir: Point, rect: Rect): [number, number] | undefined {
   let t0 = -Infinity, t1 = Infinity
-  for (const [p, d, hi] of [[origin.x, dir.x, W], [origin.y, dir.y, H]] as const) {
+  for (const [p, d, lo, hi] of [[origin.x, dir.x, rect.x0, rect.x1], [origin.y, dir.y, rect.y0, rect.y1]] as const) {
     if (Math.abs(d) < 1e-12) {
-      if (p < 0 || p > hi) return undefined
+      if (p < lo || p > hi) return undefined
       continue
     }
-    const a = (0 - p) / d, b = (hi - p) / d
+    const a = (lo - p) / d, b = (hi - p) / d
     t0 = Math.max(t0, Math.min(a, b))
     t1 = Math.min(t1, Math.max(a, b))
   }

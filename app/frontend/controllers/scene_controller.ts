@@ -21,7 +21,8 @@ const CELLS_PER_METER = FIELD.width / GARDEN.width
 // 図形を画面から編集できるようになったら（#7）、ここは保存された scene から読む形に置き換わる
 const RAKE: Rake = { tines: 5, spacing: 0.05 }
 const DEMO_SHAPES: Shape[] = [
-  { type: "straight", angle: 0, rake: RAKE },
+  // 帯の幅 25cm × 8本 = 奥行き 2m なので、庭の中央を通る 8本で庭全体を敷き詰める
+  { type: "straight", position: { x: 2, y: 1 }, angle: 0, rows: 8, rake: RAKE },
   { type: "concentric", center: { x: 2.75, y: 1 }, innerRadius: 0.1, rings: 3, rake: RAKE },
 ]
 
