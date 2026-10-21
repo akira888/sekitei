@@ -12,6 +12,7 @@ import { normalMapPixels } from './normal_map'
 import type { SandField } from './rake'
 
 // ハイトマップの凹凸を法線マップとして貼った砂の平面。頂点は動かさない（陰影だけで凹凸を見せる）。
+// 掻き直したら updateSandMesh で法線マップを差し替える
 export function createSandMesh(field: SandField, size: { width: number; depth: number }): Mesh<PlaneGeometry, MeshStandardMaterial> {
   const geometry = createGardenPlane(size)
 
@@ -24,6 +25,12 @@ export function createSandMesh(field: SandField, size: { width: number; depth: n
 
   const material = new MeshStandardMaterial({ color: 0xd9d2c3, roughness: 1, metalness: 0, normalMap })
   return new Mesh(geometry, material)
+}
+
+export function updateSandMesh(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>, field: SandField): void {
+  const normalMap = mesh.material.normalMap as DataTexture
+  ;(normalMap.image.data as Uint8Array).set(normalMapPixels(field))
+  normalMap.needsUpdate = true
 }
 
 // 庭の平面。XZ 面に寝かせ、テクスチャの x → ワールドの +x、行 → ワールドの +z（0 行目が奥）に貼る。

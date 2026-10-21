@@ -1,4 +1,5 @@
 import { normals, type Point } from './path'
+import type { RakeStyle } from './rake'
 import type { Stroke } from './shapes'
 
 // 掻く前の下絵。ならした砂の上に、歯の軌跡を細い線で重ねる（設計メモ §12）。
@@ -15,8 +16,7 @@ export type SketchOp = {
 export function sketchOps(strokes: Stroke[], lineWidth = 1.5): SketchOp[] {
   return strokes.flatMap(({ path, style }) => {
     const half = ((style.tines - 1) / 2) * style.spacing // 中心から外側の歯まで
-    // 掻く処理（rake.ts）が届く範囲。ならす幅（外側の歯の溝の縁まで）+ 縁の土手
-    const reach = half + style.grooveWidth / 2 + style.pileWidth
+    const reach = rakeReach(style)
     const ns = normals(path)
     const tines = Array.from({ length: style.tines }, (_, i): SketchOp => {
       const offset = i * style.spacing - half
@@ -24,6 +24,11 @@ export function sketchOps(strokes: Stroke[], lineWidth = 1.5): SketchOp[] {
     })
     return [{ kind: 'erase', path, width: reach * 2 }, ...tines]
   })
+}
+
+// 掻く処理（rake.ts）がパスの中心から届く範囲。ならす幅（外側の歯の溝の縁まで）+ 縁の土手
+export function rakeReach(style: RakeStyle): number {
+  return ((style.tines - 1) / 2) * style.spacing + style.grooveWidth / 2 + style.pileWidth
 }
 
 export type SketchColors = { sand: string; line: string }
