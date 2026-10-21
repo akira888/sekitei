@@ -57,7 +57,7 @@ export function shapeToStrokes(shape: Shape, garden: Garden, cellsPerMeter: numb
 }
 
 // 溝・盛り・深さは、spike で決めた基準値（間隔 12 に対し 溝 5 / 盛り 7 / 深さ 1.5）の比率で決める
-function rakeStyle(rake: Rake, cellsPerMeter: number): RakeStyle {
+export function rakeStyle(rake: Rake, cellsPerMeter: number): RakeStyle {
   const spacing = rake.spacing * cellsPerMeter
   return {
     tines: rake.tines,
