@@ -10,7 +10,8 @@ import {
   WebGLRenderer,
 } from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
-import { dragShape, gripsOf, hitShape, pickGrip, type Grip } from "../editor/grips"
+import { changeSpacing, changeTines, newShape, removeShape, SPACING, type ShapeKind } from "../editor/edit"
+import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from "../editor/grips"
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
 import { gardenToScreen, screenToGarden, topDownFrustum, type Frustum } from "../editor/top_down"
 import type { Point } from "../sand/path"
@@ -38,15 +39,22 @@ const DEMO_SHAPES: Shape[] = [
 type View = "top-down" | "3d"
 type GripOf = { grip: Grip; index: number } // どの図形のつかみ所か
 type Drag = GripOf & { start: Point; original: Shape }
+type Placing = { kind: ShapeKind; index?: number } // パレットから運んでいる図形。庭の上にある間だけ index を持つ
 
 // Three.js のシーンを要素にマウントする。
 // 編集中は真上から下絵を見せ、目印・ハンドルのドラッグで図形を動かす。
+// 選んだ図形のレーキは編集パネルで変え、新しい図形はフッターのパレットから運んで置く。
 // 仮の切り替えボタンで掻いた後の 3D と見比べる（#7-5 で置き換える）。3D では編集しない。
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
 // 生成と破棄を connect / disconnect に対応させている。
 export default class extends Controller<HTMLElement> {
-  static targets = ["toggle"]
+  static targets = ["toggle", "panel", "tines", "spacing", "spacingValue", "palette"]
   declare readonly toggleTarget: HTMLButtonElement
+  declare readonly panelTarget: HTMLElement
+  declare readonly tinesTarget: HTMLOutputElement
+  declare readonly spacingTarget: HTMLInputElement
+  declare readonly spacingValueTarget: HTMLOutputElement
+  declare readonly paletteTarget: HTMLElement
 
   private renderer?: WebGLRenderer
   private controls?: OrbitControls
@@ -60,6 +68,8 @@ export default class extends Controller<HTMLElement> {
   private shapes: Shape[] = structuredClone(DEMO_SHAPES)
   private selected?: number
   private drag?: Drag
+  private placing?: Placing
+  private lastTines = RAKE.tines // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
   private sandDirty = false // 3D に切り替えたときに掻き直す必要がある
 
@@ -119,6 +129,8 @@ export default class extends Controller<HTMLElement> {
       sketch.visible = !is3d
       this.controls!.enabled = is3d
       overlay.hidden = is3d
+      this.paletteTarget.hidden = is3d
+      this.syncPanel()
       if (is3d && this.sandDirty) {
         const startedAt = performance.now()
         updateSandMesh(sand, this.rakedField(this.strokes()))
@@ -175,10 +187,94 @@ export default class extends Controller<HTMLElement> {
     this.overlay?.remove()
     this.overlay = undefined
     this.drag = undefined
+    this.placing = undefined
 
     this.disposables.forEach((resource) => resource.dispose())
     this.disposables = []
     this.applyView = undefined
+  }
+
+  increaseTines(): void {
+    this.editSelected((shape) => changeTines(shape, 1))
+  }
+
+  decreaseTines(): void {
+    this.editSelected((shape) => changeTines(shape, -1))
+  }
+
+  changeSpacing(): void {
+    this.editSelected((shape) => changeSpacing(shape, Number(this.spacingTarget.value)))
+  }
+
+  deleteShape(): void {
+    if (this.selected === undefined) return
+    this.shapes = removeShape(this.shapes, this.selected)
+    this.select(undefined)
+    this.shapesChanged()
+  }
+
+  keydown(event: KeyboardEvent): void {
+    if (this.view !== "top-down" || (event.key !== "Delete" && event.key !== "Backspace")) return
+    if (event.target instanceof HTMLInputElement && event.target.type !== "range") return
+    event.preventDefault()
+    this.deleteShape()
+  }
+
+  // パレットの項目をつかむ。ボタンにポインターを捕まえさせ、離すまでの動きをボタンで受ける
+  startPlacing(event: PointerEvent): void {
+    if (this.view !== "top-down") return
+    const button = event.currentTarget as HTMLButtonElement
+    this.placing = { kind: button.dataset.kind as ShapeKind }
+    button.setPointerCapture(event.pointerId)
+    button.addEventListener("pointermove", this.onPlacingMove)
+    button.addEventListener("pointerup", this.onPlacingEnd)
+    button.addEventListener("pointercancel", this.onPlacingCancel)
+  }
+
+  // 庭の上にある間は置く予定の図形を一番上に出してポインターに付いてこさせ、庭の外に出たら引っ込める
+  private onPlacingMove = (event: PointerEvent): void => {
+    const placing = this.placing
+    const point = this.gardenPoint(event)
+    if (!placing || !point) return
+    if (insideGarden(point, GARDEN)) {
+      const shape = newShape(placing.kind, point, this.lastTines)
+      if (placing.index === undefined) {
+        placing.index = this.shapes.length
+        this.shapes = [...this.shapes, shape]
+      } else {
+        this.shapes[placing.index] = shape
+      }
+      this.select(placing.index)
+    } else if (placing.index !== undefined) {
+      this.shapes = removeShape(this.shapes, placing.index)
+      placing.index = undefined
+      this.select(undefined)
+    }
+    this.shapesChanged()
+  }
+
+  // 庭の上で離せば置いたまま選んだ状態にする。庭の外で離せば何も置かれていない
+  private onPlacingEnd = (event: PointerEvent): void => {
+    this.onPlacingMove(event)
+    this.finishPlacing(event)
+  }
+
+  private onPlacingCancel = (event: PointerEvent): void => {
+    if (this.placing?.index !== undefined) {
+      this.shapes = removeShape(this.shapes, this.placing.index)
+      this.select(undefined)
+      this.shapesChanged()
+    }
+    this.finishPlacing(event)
+  }
+
+  private finishPlacing(event: PointerEvent): void {
+    const button = event.currentTarget as HTMLButtonElement
+    button.releasePointerCapture(event.pointerId)
+    button.removeEventListener("pointermove", this.onPlacingMove)
+    button.removeEventListener("pointerup", this.onPlacingEnd)
+    button.removeEventListener("pointercancel", this.onPlacingCancel)
+    this.placing = undefined
   }
 
   toggleView(): void {
@@ -192,12 +288,12 @@ export default class extends Controller<HTMLElement> {
     if (!point) return
     const picked = this.pickAt(point)
     if (picked) {
-      this.selected = picked.index
+      this.select(picked.index)
       this.drag = { ...picked, start: point, original: this.shapes[picked.index] }
       this.overlay!.setPointerCapture(event.pointerId)
       return
     }
-    this.selected = hitShape(this.shapes, point, GARDEN)
+    this.select(hitShape(this.shapes, point, GARDEN))
   }
 
   private onPointerMove = (event: PointerEvent): void => {
@@ -209,8 +305,7 @@ export default class extends Controller<HTMLElement> {
     }
     const { index, grip, start, original } = this.drag
     this.shapes[index] = dragShape(original, grip, start, point)
-    this.sketchDirty = true
-    this.sandDirty = true
+    this.shapesChanged()
     this.overlay!.style.cursor = "grabbing"
   }
 
@@ -219,6 +314,38 @@ export default class extends Controller<HTMLElement> {
     this.drag = undefined
     this.overlay!.releasePointerCapture(event.pointerId)
     this.overlay!.style.cursor = "grab"
+  }
+
+  private select(index: number | undefined): void {
+    this.selected = index
+    this.syncPanel()
+  }
+
+  private editSelected(edit: (shape: Shape) => Shape): void {
+    if (this.selected === undefined) return
+    const before = this.shapes[this.selected]
+    const after = edit(before)
+    this.shapes[this.selected] = after
+    if (after.rake.tines !== before.rake.tines) this.lastTines = after.rake.tines
+    this.syncPanel()
+    this.shapesChanged()
+  }
+
+  private shapesChanged(): void {
+    this.sketchDirty = true
+    this.sandDirty = true
+  }
+
+  // パネルは図形を選んでいる間だけ、真上からの画面で開く。中身は選んだ図形のレーキに合わせる
+  private syncPanel(): void {
+    const shape = this.selected === undefined ? undefined : this.shapes[this.selected]
+    this.panelTarget.hidden = !shape || this.view !== "top-down"
+    if (!shape) return
+    // 単位を出すと庭の実寸の感覚とずれるので、数字だけを見せる（間隔は cm の値）
+    this.tinesTarget.value = String(shape.rake.tines)
+    Object.assign(this.spacingTarget, { min: SPACING.min, max: SPACING.max, step: SPACING.step })
+    this.spacingTarget.value = String(shape.rake.spacing)
+    this.spacingValueTarget.value = (shape.rake.spacing * 100).toFixed(1)
   }
 
   // 選んでいる図形のハンドルと、すべての図形の目印。上の図形の目印ほど後ろに並ぶので、
