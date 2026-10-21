@@ -1,6 +1,5 @@
 import { Controller } from "@hotwired/stimulus"
 import {
-  Camera,
   Color,
   DirectionalLight,
   HemisphereLight,
@@ -36,7 +35,7 @@ const DEMO_SHAPES: Shape[] = [
   { type: "concentric", center: { x: 2.75, y: 1 }, innerRadius: 0.1, rings: 3, rake: RAKE },
 ]
 
-type View = "top-down" | "3d"
+type View = "sketch" | "finished" // 真上からの下絵（編集する）と、斜めから見る掻いた後の仕上がり（見るだけ）
 type GripOf = { grip: Grip; index: number } // どの図形のつかみ所か
 type Drag = GripOf & { start: Point; original: Shape }
 type Placing = { kind: ShapeKind; index?: number } // パレットから運んでいる図形。庭の上にある間だけ index を持つ
@@ -44,7 +43,8 @@ type Placing = { kind: ShapeKind; index?: number } // パレットから運ん�
 // Three.js のシーンを要素にマウントする。
 // 編集中は真上から下絵を見せ、目印・ハンドルのドラッグで図形を動かす。
 // 選んだ図形のレーキは編集パネルで変え、新しい図形はフッターのパレットから運んで置く。
-// 仮の切り替えボタンで掻いた後の 3D と見比べる（#7-5 で置き換える）。3D では編集しない。
+// 右上のボタンで、掻いた後の仕上がりを斜めからの 3D で見る。仕上がりではカメラを回せるが、編集はしない。
+// 真上からでは下絵とほぼ同じ形しか見えずプレビューにならないため、立体感の出る斜めの視点にしている。
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
 // 生成と破棄を connect / disconnect に対応させている。
 export default class extends Controller<HTMLElement> {
@@ -60,7 +60,7 @@ export default class extends Controller<HTMLElement> {
   private controls?: OrbitControls
   private resizeObserver?: ResizeObserver
   private disposables: { dispose(): void }[] = []
-  private view: View = "top-down"
+  private view: View = "sketch"
   private applyView?: () => void
   private overlay?: HTMLCanvasElement
   private frustum?: Frustum
@@ -71,14 +71,14 @@ export default class extends Controller<HTMLElement> {
   private placing?: Placing
   private lastTines = RAKE.tines // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
-  private sandDirty = false // 3D に切り替えたときに掻き直す必要がある
+  private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
 
   connect(): void {
     const scene = new Scene()
     scene.background = new Color(0xe8e4da)
 
     // 砂紋の凹凸は低い光で陰影が出るので、太陽は低めに置く。
-    // 奥から照らす逆光だと溝と山が反転して見えやすいので、初期の視点と同じ手前側に置く
+    // 奥から照らす逆光だと溝と山が反転して見えやすいので、仕上がりの初期の視点と同じ手前側に置く
     scene.add(new HemisphereLight(0xffffff, 0x8a8170, 1.2))
     const sun = new DirectionalLight(0xfff4e0, 2.5)
     sun.position.set(-3, 1.2, 1.5)
@@ -114,30 +114,30 @@ export default class extends Controller<HTMLElement> {
     overlay.addEventListener("pointerup", this.onPointerUp)
     overlay.addEventListener("pointercancel", this.onPointerUp)
 
-    // 凹凸の見え方を確かめるための仮のカメラ操作。鑑賞モードの制限は #12 で決める
+    // 凹凸を回り込んで確かめるためのカメラ操作。鑑賞モードの制限は #12 で決める
     this.controls = new OrbitControls(perspective, renderer.domElement)
     this.controls.enableDamping = true
     this.controls.rotateSpeed = 0.35
     // 地面の下に回り込んで庭が裏返らないよう、真横から約 11° 上で止める
     this.controls.maxPolarAngle = Math.PI / 2 - 0.2
 
-    let camera: Camera = topDown
+    let camera: PerspectiveCamera | OrthographicCamera = topDown
     this.applyView = () => {
-      const is3d = this.view === "3d"
-      camera = is3d ? perspective : topDown
-      sand.visible = is3d
-      sketch.visible = !is3d
-      this.controls!.enabled = is3d
-      overlay.hidden = is3d
-      this.paletteTarget.hidden = is3d
+      const finished = this.view === "finished"
+      camera = finished ? perspective : topDown
+      this.controls!.enabled = finished
+      sand.visible = finished
+      sketch.visible = !finished
+      overlay.hidden = finished
+      this.paletteTarget.hidden = finished
       this.syncPanel()
-      if (is3d && this.sandDirty) {
+      if (finished && this.sandDirty) {
         const startedAt = performance.now()
         updateSandMesh(sand, this.rakedField(this.strokes()))
         console.info(`[sekitei] 全面の掻き直し: ${Math.round(performance.now() - startedAt)}ms`)
         this.sandDirty = false
       }
-      this.toggleTarget.textContent = is3d ? "下絵を見る" : "仕上がりを見る"
+      this.toggleTarget.textContent = finished ? "下絵に戻る" : "仕上がりを見る"
     }
     this.applyView()
 
@@ -166,7 +166,7 @@ export default class extends Controller<HTMLElement> {
       }
       this.controls?.update()
       renderer.render(scene, camera)
-      if (this.view === "top-down") this.renderOverlay(overlayCtx)
+      if (this.view === "sketch") this.renderOverlay(overlayCtx)
     })
   }
 
@@ -214,7 +214,7 @@ export default class extends Controller<HTMLElement> {
   }
 
   keydown(event: KeyboardEvent): void {
-    if (this.view !== "top-down" || (event.key !== "Delete" && event.key !== "Backspace")) return
+    if (this.view !== "sketch" || (event.key !== "Delete" && event.key !== "Backspace")) return
     if (event.target instanceof HTMLInputElement && event.target.type !== "range") return
     event.preventDefault()
     this.deleteShape()
@@ -222,7 +222,7 @@ export default class extends Controller<HTMLElement> {
 
   // パレットの項目をつかむ。ボタンにポインターを捕まえさせ、離すまでの動きをボタンで受ける
   startPlacing(event: PointerEvent): void {
-    if (this.view !== "top-down") return
+    if (this.view !== "sketch") return
     const button = event.currentTarget as HTMLButtonElement
     this.placing = { kind: button.dataset.kind as ShapeKind }
     button.setPointerCapture(event.pointerId)
@@ -278,7 +278,7 @@ export default class extends Controller<HTMLElement> {
   }
 
   toggleView(): void {
-    this.view = this.view === "3d" ? "top-down" : "3d"
+    this.view = this.view === "finished" ? "sketch" : "finished"
     this.applyView?.()
   }
 
@@ -339,7 +339,7 @@ export default class extends Controller<HTMLElement> {
   // パネルは図形を選んでいる間だけ、真上からの画面で開く。中身は選んだ図形のレーキに合わせる
   private syncPanel(): void {
     const shape = this.selected === undefined ? undefined : this.shapes[this.selected]
-    this.panelTarget.hidden = !shape || this.view !== "top-down"
+    this.panelTarget.hidden = !shape || this.view !== "sketch"
     if (!shape) return
     // 単位を出すと庭の実寸の感覚とずれるので、数字だけを見せる（間隔は cm の値）
     this.tinesTarget.value = String(shape.rake.tines)
