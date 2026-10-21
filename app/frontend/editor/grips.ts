@@ -73,11 +73,15 @@ export function pickGrip<G extends Grip>(grips: readonly G[], point: Point, tole
 // クリックした地点を掻く図形のうち、一番上（配列の後ろ）のものの番号。
 // 当たりの範囲は下絵が下の線を消す範囲と同じにする（見えている図形を選ぶため。設計メモ §13）
 export function hitShape(shapes: Shape[], point: Point, garden: Garden): number | undefined {
-  if (point.x < 0 || point.y < 0 || point.x > garden.width || point.y > garden.depth) return undefined
+  if (!insideGarden(point, garden)) return undefined
   for (let i = shapes.length - 1; i >= 0; i--) {
     if (covers(shapes[i], point)) return i
   }
   return undefined
+}
+
+export function insideGarden(point: Point, garden: Garden): boolean {
+  return point.x >= 0 && point.y >= 0 && point.x <= garden.width && point.y <= garden.depth
 }
 
 function covers(shape: Shape, point: Point): boolean {
