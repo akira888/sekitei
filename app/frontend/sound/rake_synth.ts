@@ -1,21 +1,12 @@
 import { GrainScheduler, hannEnvelope, rand } from './grains'
+import { rakeLevels } from './levels'
 import { createPinkNoiseBuffer, createRoughnessBuffer, ROUGHNESS_BASE_RATE } from './noise'
+import { SETTINGS } from './settings'
 
-// レーキが砂を掻く音のシンセ。spike（spikes/sound）で聴き比べて決めた設定のまま移した（設計メモ §8）。
+// レーキが砂を掻く音のシンセ。設定は spike（spikes/sound）で聴き比べて決めた値（settings.ts、設計メモ §8）。
 // ピンクノイズ → バンドパス → ローパス → 音量（速度連動）→ ザラつき（振幅変調） ＋ 粒（長め・中低域）。
 // 速度は音色ではなく量（音量・粒の密度）で表す。速度で音色を動かすと風切り音に聞こえるため。
 // 時刻はすべて AudioContext.currentTime 基準で渡す（画面のアニメーションと同じ時計にするため）
-const SETTINGS = {
-  bandpassFreq: 2051, // [Hz]
-  bandpassQ: 4.2, // spike では 42 と持って 10 で割っていた
-  lowpassFreq: 1500, // [Hz]。速度で動かさない（改善A）
-  roughnessDepth: 0.8, // ノイズの音量を不規則に揺らす深さ（改善B）
-  roughnessRate: 50, // 揺れの速さ[Hz]
-  grainMaxRate: 300, // 速度1のときの粒の数[/秒]
-  grainGain: 0.12, // 粒の音量
-  noiseCeiling: 0.3, // ノイズの音量はこの速度で頭打ちにし、それより速い分は粒で表す（改善C）
-}
-const SMOOTHING = 0.04 // 音量の変化をプチッと鳴らさずに追従させる時定数[s]
 const RELEASE = 0.3 // 止めるときに音を消し切るまでの時間[s]
 
 // ストロークを1回プレビューする間だけ使う。バッファの再生は一度しか始められないので、毎回作り直す
@@ -47,6 +38,7 @@ export class RakeSynth {
     const lowpass = ctx.createBiquadFilter()
     lowpass.type = 'lowpass'
     lowpass.frequency.value = SETTINGS.lowpassFreq
+    lowpass.Q.value = SETTINGS.lowpassQ
     this.noiseGain = ctx.createGain()
     this.noiseGain.gain.value = 0
     // roughGain の gain = 1 + 深さ × 揺れ(-1..1)
@@ -76,12 +68,10 @@ export class RakeSynth {
   // grainBoost: 粒だけを speed の何倍の速さとみなすか（同時に動くレーキが多いとき、粒だけ少し増やす）
   setSpeed(speed: number, time: number, grainBoost = 1): void {
     if (this.released) return
-    this.grainSpeed = Math.min(1, speed * grainBoost)
-    // 音量は速度の平方根で立ち上げる（ゆっくりでも聞こえるように）
-    const noiseLevel = Math.min(Math.sqrt(speed), Math.sqrt(SETTINGS.noiseCeiling))
-    this.noiseGain.gain.setTargetAtTime(noiseLevel * 0.9, time, SMOOTHING)
-    const grainLevel = this.grainSpeed > 0 ? SETTINGS.grainGain * (0.6 + this.grainSpeed * 0.8) : 0
-    this.grainBus.gain.setTargetAtTime(grainLevel, time, SMOOTHING)
+    const { noise, grains, grainSpeed } = rakeLevels(speed, grainBoost)
+    this.grainSpeed = grainSpeed
+    this.noiseGain.gain.setTargetAtTime(noise, time, SETTINGS.smoothing)
+    this.grainBus.gain.setTargetAtTime(grains, time, SETTINGS.smoothing)
   }
 
   // 音を消してから止める。いきなり止めるとプチッと鳴るため
