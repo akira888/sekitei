@@ -31,6 +31,29 @@ describe('rakeField', () => {
     expect(field.at(50, 90)).toBe(0)
   })
 
+  it('掻かない印（blocked）の付いたマスは、レーキが通っても高さを変えない（石の下と周り）', () => {
+    const field = new SandField(100, 100)
+    field.blocked = new Uint8Array(100 * 100)
+    field.blocked[50 * 100 + 50] = 1
+    field.set(50, 50, 0.7)
+    rakeField(field, horizontal(50), style)
+
+    expect(field.at(50, 50)).toBeCloseTo(0.7)
+    expect(field.at(52, 50)).toBeCloseTo(-1.5) // 印のないマスは掻く
+  })
+
+  it('歯の位置が持ち上げる印（liftArea）に入る所では、その歯だけ溝を掘らずに止め、ほかの歯は掻く', () => {
+    // 歯は y = 38, 50, 62 を通る。y = 62 の歯が x = 40〜60 で石の周りに入る
+    const field = new SandField(100, 100)
+    field.liftArea = new Uint8Array(100 * 100)
+    for (let y = 59; y <= 65; y++) for (let x = 40; x <= 60; x++) field.liftArea[y * 100 + x] = 1
+    rakeField(field, horizontal(50), style)
+
+    expect(field.at(50, 62)).toBe(0) // 持ち上げた歯の溝はない
+    expect(field.at(20, 62)).toBeCloseTo(-1.5) // 石の手前では掘っている
+    expect(field.at(50, 50)).toBeCloseTo(-1.5) // 隣の歯はそのまま掘る
+  })
+
   it('後から掻いた砂紋が交差点の古い溝を消す', () => {
     const field = new SandField(100, 100)
     rakeField(field, vertical(50), style)

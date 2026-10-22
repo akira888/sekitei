@@ -24,7 +24,7 @@ describe('sketchOps', () => {
   })
 
   it('歯の線は、歯の本数ぶん、パスを歯の位置まで横にずらして引く', () => {
-    const lines = sketchOps([horizontal(20)], 1.5).filter((op) => op.kind === 'line')
+    const lines = sketchOps([horizontal(20)], undefined, 1.5).filter((op) => op.kind === 'line')
 
     expect(lines.map(({ path }) => path.map((p) => p.y))).toEqual([
       [8, 8, 8],
@@ -42,5 +42,16 @@ describe('sketchOps', () => {
     const [erase] = sketchOps([horizontal(20)])
 
     expect(erase.width / 2).toBeLessThan(24)
+  })
+})
+
+describe('sketchOps の石', () => {
+  const outline = [{ x: 40, y: 10 }, { x: 60, y: 10 }, { x: 60, y: 30 }, { x: 40, y: 30 }]
+
+  it('すべての線の後に、石の輪郭を余白の幅ぶん太らせて塗り、下の線を消す（掻かずに残す範囲と同じ）', () => {
+    const ops = sketchOps([horizontal(20)], { outlines: [outline], margin: 3 })
+
+    expect(ops.map((op) => op.kind)).toEqual(['erase', 'line', 'line', 'line', 'cover'])
+    expect(ops.at(-1)).toEqual({ kind: 'cover', path: outline, width: 6 })
   })
 })

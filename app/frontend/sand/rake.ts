@@ -14,8 +14,18 @@ export type RakeStyle = {
 
 export class SandField {
   readonly h: Float32Array
+  blocked?: Uint8Array // 1 のマスは掻かない（石の下。sand/seating.ts）
+  liftArea?: Uint8Array // 歯の位置がここ（石の周り）に入る所では、その歯を持ち上げて溝を止める
   constructor(readonly width: number, readonly height: number) {
     this.h = new Float32Array(width * height)
+  }
+  // 掻く前の砂（石の根元の盛りと、掻かない印）から掻き始めるための写し
+  clone(): SandField {
+    const copy = new SandField(this.width, this.height)
+    copy.h.set(this.h)
+    copy.blocked = this.blocked
+    copy.liftArea = this.liftArea
+    return copy
   }
   at(x: number, y: number): number {
     return this.h[y * this.width + x]
@@ -118,6 +128,19 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
     }
   }
 
+  // 石の周りに入る歯は、その点で持ち上げる（溝を掘らず、ならしもせず、盛りもしない）。
+  // マス単位で切ると、石に沿って回る溝（同心円の中心に石があるとき）が縦に切られ、盛りの下へ潜って見えるため。
+  // 歯ごと・点ごとに止めれば、溝は石に当たった所で端になる
+  const lifted = new Uint8Array(path.length * s.tines)
+  if (field.liftArea) {
+    for (let j = 0; j < path.length; j++) {
+      for (let i = 0; i < s.tines; i++) {
+        const x = Math.round(path[j].x + ns[j].x * tineAt(i)), y = Math.round(path[j].y + ns[j].y * tineAt(i))
+        if (x >= 0 && y >= 0 && x < W && y < H && field.liftArea[y * W + x]) lifted[j * s.tines + i] = 1
+      }
+    }
+  }
+
   // 1回目: ならして溝を掘り、掘った砂の量を「パスの点 × 歯」ごとに集計する。
   // 左右には半分ずつ盛る（マス目で左右に分けて数えると、溝の中心の列が片側に寄って量が偏るため）
   const bucket = (j: number, i: number) => j * s.tines + i
@@ -128,6 +151,7 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
     const j = nearest[l]
     if (j < 0 || Math.abs(lateral[l]) > edge) continue
     const i = Math.min(s.tines - 1, Math.max(0, Math.round((lateral[l] + half) / s.spacing)))
+    if (lifted[bucket(j, i)]) continue
     const u = lateral[l] - tineAt(i) // 歯からの横距離
     const dug = Math.abs(u) < g ? -s.depth * Math.cos((Math.PI * u) / (2 * g)) : 0
     moved[bucket(j, i)] += -dug // 基準面から掘った分だけ（古い高さは数えない）
@@ -161,6 +185,10 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
     next[l] = (outside ? h[cellOf(l)] * (1 - cover) : next[l]) + pile
     touched[l] = 1
   }
+
+  // 掻かない印のマス（石の下）は、計算した高さを捨てて元のままにする
+  const { blocked } = field
+  if (blocked) for (let l = 0; l < next.length; l++) if (touched[l] && blocked[cellOf(l)]) touched[l] = 0
 
   // 見せる順にマスを並べる。一番近い点の順にすると、同心円の始点の重なりで、近い点が始点側と終点側に
   // 分かれたマスが斑に残る（一周して戻るまで書き込まれない）ので、最初に届いた点の順にする

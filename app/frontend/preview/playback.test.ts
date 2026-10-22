@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { RakePlayback, planPreview } from './playback'
 import { SandField, rakeField } from '../sand/rake'
+import { seatedField } from '../sand/seating'
 import { shapeToStrokes, type Shape } from '../sand/shapes'
 
 // 庭 2m × 1m を 1m = 100 マス（200 × 100 マス）で掻く。歯 3本・間隔 6cm（帯の幅 18 マス）
@@ -16,11 +17,11 @@ const twoRows: Shape = { type: 'straight', position: { x: 1, y: 0.5 }, angle: 0,
 const options = { speed: 1, ramp: 0.2, pause: 0.5, leadIn: 0 }
 
 const strokesOf = (shapes: Shape[]) => shapes.map((shape) => shapeToStrokes(shape, GARDEN, 100))
-const plan = (shapes: Shape[]) => planPreview(strokesOf(shapes), 200, 100, 100, options)
+const plan = (shapes: Shape[], base = new SandField(200, 100)) => planPreview(strokesOf(shapes), base, 100, options)
 
 // 配列の順に1本ずつ掻いた砂
-const raked = (shapes: Shape[]) => {
-  const field = new SandField(200, 100)
+const raked = (shapes: Shape[], base = new SandField(200, 100)) => {
+  const field = base.clone()
   for (const strokes of strokesOf(shapes)) for (const { path, style } of strokes) rakeField(field, path, style)
   return field
 }
@@ -73,6 +74,18 @@ describe('RakePlayback', () => {
 
     expect(advanced.h).toEqual(raked(shapes).h)
     expect(finished.h).toEqual(raked(shapes).h)
+  })
+
+  it('石を据えた砂から掻くと、最後は石を据えた砂に1本ずつ掻いた砂と同じになり、石の周りは盛りのまま残る', () => {
+    // 敷き詰めの真ん中に石を据える（輪郭は 0.9〜1.1m × 0.4〜0.6m の正方形）
+    const base = () => seatedField([[{ x: 0.9, y: 0.4 }, { x: 1.1, y: 0.4 }, { x: 1.1, y: 0.6 }, { x: 0.9, y: 0.6 }]], 200, 100, 100)
+    const preview = plan([fill], base())
+    const field = base()
+    new RakePlayback(field, preview).advance(preview.timeline.duration + 1)
+
+    expect(field.h).toEqual(raked([fill], base()).h)
+    expect(field.at(100, 50)).toEqual(base().at(100, 50))
+    expect(field.at(30, 50)).not.toEqual(0) // 石から離れた所は掻いている
   })
 
   it('同じまとまりのストロークは同時に進む（途中で、平行な2本の始点側はどちらも書き込まれていて、先はまだ）', () => {
