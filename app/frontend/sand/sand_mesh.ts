@@ -8,11 +8,11 @@ import {
   RGBAFormat,
   UnsignedByteType,
 } from 'three'
-import { normalMapPixels } from './normal_map'
-import type { SandField } from './rake'
+import { normalMapPixels, updateNormals } from './normal_map'
+import type { CellRect, SandField } from './rake'
 
 // ハイトマップの凹凸を法線マップとして貼った砂の平面。頂点は動かさない（陰影だけで凹凸を見せる）。
-// 掻き直したら updateSandMesh で法線マップを差し替える
+// 掻き直したら updateSandMesh で法線マップを書き直す。プレビューでは変わった範囲だけを updateSandMeshRegion で書き直す
 export function createSandMesh(field: SandField, size: { width: number; depth: number }): Mesh<PlaneGeometry, MeshStandardMaterial> {
   const geometry = createGardenPlane(size)
 
@@ -28,8 +28,13 @@ export function createSandMesh(field: SandField, size: { width: number; depth: n
 }
 
 export function updateSandMesh(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>, field: SandField): void {
+  updateSandMeshRegion(mesh, field, { x0: 0, y0: 0, x1: field.width - 1, y1: field.height - 1 })
+}
+
+// 高さが変わった範囲の法線だけを書き直す。テクスチャは全面を送り直す（部分的に送るのは、カクつくようなら考える）
+export function updateSandMeshRegion(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>, field: SandField, changed: CellRect): void {
   const normalMap = mesh.material.normalMap as DataTexture
-  ;(normalMap.image.data as Uint8Array).set(normalMapPixels(field))
+  updateNormals(normalMap.image.data as Uint8Array, field, changed)
   normalMap.needsUpdate = true
 }
 

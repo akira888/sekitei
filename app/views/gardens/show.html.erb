@@ -10,8 +10,15 @@
   <%# 保存に失敗したときだけ出す。次の操作か、ページを離れるときに送り直す %>
   <p class="scene-save-error" data-scene-target="saveError" role="alert" hidden>保存できませんでした</p>
 
-  <%# 掻いた後の仕上がりと下絵を行き来する。アニメーションなしで一気に掻いた結果を見せる %>
-  <button type="button" class="scene-toggle" data-scene-target="toggle" data-action="scene#toggleView"></button>
+  <%# 右上の操作。下絵では「プレビュー」「仕上がりを見る」、プレビュー中は「最後まで飛ばす」「下絵に戻る」、
+      仕上がりでは「もう一度プレビュー」「下絵に戻る」を出す（文言はコントローラが入れる） %>
+  <div class="scene-actions">
+    <%# レーキが平らな砂を下のレイヤーから順に掻いていく様子を、音と合わせて見る %>
+    <button type="button" data-scene-target="previewButton" data-action="scene#startPreview"></button>
+    <button type="button" data-scene-target="skipButton" data-action="scene#skipPreview" hidden>最後まで飛ばす</button>
+    <%# 掻いた後の仕上がりと下絵を行き来する。アニメーションなしで一気に掻いた結果を見せる %>
+    <button type="button" data-scene-target="toggle" data-action="scene#toggleView"></button>
+  </div>
 
   <%# 選んだ図形のレーキを変える。図形を選んでいる間だけ開く %>
   <section class="scene-panel" data-scene-target="panel" hidden>

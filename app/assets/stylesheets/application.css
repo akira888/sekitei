@@ -38,11 +38,13 @@ body {
   display: none;
 }
 
-.scene-toggle {
+.scene-actions {
   position: absolute;
   z-index: 1;
   top: 16px;
   right: 16px;
+  display: flex;
+  gap: 8px;
 }
 
 .scene-panel,
