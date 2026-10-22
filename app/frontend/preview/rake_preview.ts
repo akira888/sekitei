@@ -14,7 +14,7 @@ import { sampleTimeline, type Timeline } from './timeline'
 
 // 速さはブラウザで見ながら調整する仮の値
 const TIMING = {
-  speed: 1, // 同時に掻くうちで一番長いストロークの巡航の速さ[m/s]
+  speed: 0.8, // 同時に掻くうちで一番長いストロークの巡航の速さ[m/s]。1 m/s から落とし、見比べて 0.8 に
   ramp: 0.6, // 掻き始めの加速・終わりの減速[s]
   pause: 0.8, // まとまりの間にレーキを持ち上げている時間[s]（spike の自動ストロークの値）
   leadIn: 0.6, // 最初のまとまりまでの間[s]
