@@ -7,6 +7,7 @@ import type { Shape } from '../sand/shapes'
 
 export const TINES = { min: 2, max: 10 }
 export const SPACING = { min: 0.03, max: 0.1, step: 0.005 } // [m]
+const DEFAULT_TINES = 5
 const DEFAULT_SPACING = 0.05
 
 const clamp = (value: number, { min, max }: { min: number; max: number }) => Math.min(max, Math.max(min, value))
@@ -18,6 +19,12 @@ export function changeTines(shape: Shape, delta: number): Shape {
 export function changeSpacing(shape: Shape, spacing: number): Shape {
   const snapped = Math.round(spacing / SPACING.step) * SPACING.step
   return { ...shape, rake: { ...shape.rake, spacing: clamp(snapped, SPACING) } }
+}
+
+// 開き直した庭でパレットから置く図形の歯の本数。直前に変えた本数は保存しないので、
+// 一番上（最後に置いた）図形の本数で代える。1つの庭ではあまり変えないので、たいていは同じ本数になる
+export function inheritedTines(shapes: Shape[]): number {
+  return shapes.at(-1)?.rake.tines ?? DEFAULT_TINES
 }
 
 export type ShapeKind = Shape['type']

@@ -1,26 +1,5 @@
-<div data-controller="scene" class="scene" data-action="keydown@window->scene#keydown">
-  <%# 掻いた後の仕上がりと下絵を行き来する。アニメーションなしで一気に掻いた結果を見せる %>
-  <button type="button" class="scene-toggle" data-scene-target="toggle" data-action="scene#toggleView"></button>
-
-  <%# 選んだ図形のレーキを変える。図形を選んでいる間だけ開く %>
-  <section class="scene-panel" data-scene-target="panel" hidden>
-    <div class="scene-panel-row">
-      <span>歯の本数</span>
-      <button type="button" data-action="scene#decreaseTines" aria-label="歯を減らす">−</button>
-      <output data-scene-target="tines"></output>
-      <button type="button" data-action="scene#increaseTines" aria-label="歯を増やす">＋</button>
-    </div>
-    <label class="scene-panel-row">
-      <span>歯の間隔</span>
-      <input type="range" data-scene-target="spacing" data-action="input->scene#changeSpacing">
-      <output data-scene-target="spacingValue"></output>
-    </label>
-    <button type="button" class="scene-panel-delete" data-action="scene#deleteShape">削除</button>
-  </section>
-
-  <%# つかんで庭の上で離すと、その位置に図形を置く %>
-  <footer class="scene-palette" data-scene-target="palette">
-    <button type="button" data-kind="straight" data-action="pointerdown->scene#startPlacing">直線</button>
-    <button type="button" data-kind="concentric" data-action="pointerdown->scene#startPlacing">同心円</button>
-  </footer>
-</div>
+<main class="home">
+  <h1 class="home-title">石庭</h1>
+  <%# 押すと空の庭を1つ作り、その庭の編集画面（uuid の URL）へ移る %>
+  <%= button_to "庭を作る", gardens_path, class: "home-create" %>
+</main>
