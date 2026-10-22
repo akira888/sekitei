@@ -33,12 +33,32 @@
       <input type="range" data-scene-target="spacing" data-action="input->scene#changeSpacing change->scene#save">
       <output data-scene-target="spacingValue"></output>
     </label>
-    <button type="button" class="scene-panel-delete" data-action="scene#deleteShape">削除</button>
+    <button type="button" class="scene-panel-delete" data-action="scene#deleteSelected">削除</button>
+  </section>
+
+  <%# 選んだ石を変える。石を選んでいる間だけ開く。
+      上の窓には、選んだ石を庭の手前から見た姿を WebGL で描く。窓の下の WebGL を透かすので、窓と外枠には背景を付けない %>
+  <section class="scene-stone-panel" data-scene-target="stonePanel" hidden>
+    <div class="scene-stone-view" data-scene-target="stoneView" aria-hidden="true"></div>
+    <div class="scene-panel-body">
+      <% { "size" => "大きさ", "tallness" => "背の高さ", "roughness" => "ゴツゴツ" }.each do |param, label| %>
+        <label class="scene-panel-row">
+          <span><%= label %></span>
+          <input type="range" data-scene-target="stoneParam" data-param="<%= param %>"
+                 data-action="input->scene#changeStoneParam change->scene#save">
+          <output data-scene-target="stoneParamValue" data-param="<%= param %>"></output>
+        </label>
+      <% end %>
+      <%# 大きさなどは保ったまま、凹凸の出方だけを変える（形のくじを引き直す） %>
+      <button type="button" data-action="scene#reshapeStone">別の形にする</button>
+      <button type="button" class="scene-panel-delete" data-action="scene#deleteSelected">削除</button>
+    </div>
   </section>
 
   <%# つかんで庭の上で離すと、その位置に図形を置く %>
   <footer class="scene-palette" data-scene-target="palette">
     <button type="button" data-kind="straight" data-action="pointerdown->scene#startPlacing">直線</button>
     <button type="button" data-kind="concentric" data-action="pointerdown->scene#startPlacing">同心円</button>
+    <button type="button" data-kind="stone" data-action="pointerdown->scene#startPlacing">石</button>
   </footer>
 <% end %>

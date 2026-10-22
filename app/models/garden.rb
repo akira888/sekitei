@@ -17,7 +17,12 @@ class Garden < ApplicationRecord
   def scene_must_be_readable
     readable = scene.is_a?(Hash) &&
       scene["version"].is_a?(Integer) && scene["version"].positive? &&
-      scene["shapes"].is_a?(Array) && scene["shapes"].all?(Hash)
+      objects?(scene["shapes"]) &&
+      (!scene.key?("stones") || objects?(scene["stones"])) # 石を足す前の庭には stones がない
     errors.add(:scene, :invalid) unless readable
+  end
+
+  def objects?(value)
+    value.is_a?(Array) && value.all?(Hash)
   end
 end

@@ -48,6 +48,7 @@ body {
 }
 
 .scene-panel,
+.scene-panel-body,
 .scene-palette {
   position: absolute;
   z-index: 1;
@@ -63,6 +64,7 @@ body {
 
 /* display: flex が hidden 属性より強いので、隠すときを明示する */
 .scene-panel[hidden],
+.scene-stone-panel[hidden],
 .scene-palette[hidden] {
   display: none;
 }
@@ -74,6 +76,36 @@ body {
   min-width: 220px;
 }
 
+.scene-stone-panel {
+  position: absolute;
+  z-index: 1;
+  top: 48px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 240px;
+}
+
+.scene-stone-panel > * {
+  box-sizing: border-box;
+}
+
+/* 下の WebGL を透かして、選んだ石の横からの姿を見せる。背景を付けない */
+.scene-stone-view {
+  height: 160px;
+  border: 1px solid #c9c0ae; /* WebGL は四角く描くので角は丸めない */
+}
+
+.scene-panel-body {
+  position: static;
+  flex-direction: column;
+}
+
+.scene-panel-body > button {
+  align-self: flex-start;
+}
+
 .scene-panel-row {
   display: flex;
   align-items: center;
@@ -81,7 +113,9 @@ body {
 }
 
 .scene-panel-row > span {
+  flex-shrink: 0;
   width: 4.5em;
+  white-space: nowrap;
 }
 
 .scene-panel-row output {
@@ -91,6 +125,7 @@ body {
 
 .scene-panel-row input[type="range"] {
   flex: 1;
+  min-width: 0; /* 狭いパネルでも縮んで、はみ出さないように */
 }
 
 .scene-panel-delete {
@@ -98,14 +133,16 @@ body {
   color: #a3361f;
 }
 
+/* 上の帯の中央。右上の操作ボタンと同じ高さに揃え、庭はこの下に収める（scene_controller の fitTopDown） */
 .scene-palette {
-  bottom: 16px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
+  padding: 4px 6px;
 }
 
 .scene-palette button {
-  padding: 8px 16px;
+  padding: 3px 14px;
   cursor: grab;
   touch-action: none;
 }
