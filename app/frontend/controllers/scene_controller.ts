@@ -2,7 +2,6 @@ import { Controller } from "@hotwired/stimulus"
 import {
   Color,
   DirectionalLight,
-  Group,
   HemisphereLight,
   OrthographicCamera,
   PCFSoftShadowMap,
@@ -15,6 +14,7 @@ import { Autosave } from "../editor/autosave"
 import { changeSpacing, changeTines, inheritedTines, newShape, removeShape, SPACING, type ShapeKind } from "../editor/edit"
 import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from "../editor/grips"
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
+import { changeStoneParam, dragStone, hitStone, newStone, reshapeStone, STONE, stoneGrips, type StoneParam } from "../editor/stones"
 import { gardenToScreen, screenToGarden, topDownFrustum, type Frustum } from "../editor/top_down"
 import { parseScene, toScene } from "../garden/scene"
 import { RakePreview } from "../preview/rake_preview"
@@ -23,20 +23,29 @@ import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh, updateSandMesh } from "../sand/sand_mesh"
 import { createSketchMesh } from "../sand/sketch_mesh"
 import { shapeToStrokes, type Shape, type Stroke } from "../sand/shapes"
-import { createStoneMesh } from "../stone/stone_mesh"
+import { StoneSideView } from "../stone/side_view"
+import type { Stone } from "../stone/stone"
+import { StoneLayer } from "../stone/stone_mesh"
 
 // 庭の実寸[m] とハイトマップの解像度（1マス ≒ 4mm）。#5 時点の仮の値
 const GARDEN = { width: 4, depth: 2 }
 const FIELD = { width: 1024, height: 512 }
 const CELLS_PER_METER = FIELD.width / GARDEN.width
 const TOP_DOWN_MARGIN = 0.1 // 真上から見たときの庭の周りの余白（合わせる辺の 10%）
+const TOP_BAR_GAP = 4 // 上の帯（パレット・操作ボタン）と庭の間[px]。庭の余白とは別に空ける
 const GRIP_TOLERANCE = MARKER_RADIUS + 4 // 目印・ハンドルをつかめる範囲[px]
 
 // 真上からの下絵（編集する）、斜めから見るプレビュー（掻いていく様子と音）、掻いた後の仕上がり（見るだけ）
 type View = "sketch" | "preview" | "finished"
-type GripOf = { grip: Grip; index: number } // どの図形のつかみ所か
-type Drag = GripOf & { start: Point; original: Shape }
-type Placing = { kind: ShapeKind; index?: number } // パレットから運んでいる図形。庭の上にある間だけ index を持つ
+// 選んでいるもの。砂紋の図形（shapes）と石（stones）は別の配列なので、どちらの何番目かで持つ
+type Selection = { layer: "shape" | "stone"; index: number }
+type GripOf = { grip: Grip; target: Selection } // どの図形・石のつかみ所か
+type Drag = GripOf & { start: Point; original: Shape | Stone }
+// パレットから運んでいる図形・石。庭の上にある間だけ index を持つ。石の seed は運び始めに決める
+type Placing = { kind: ShapeKind | "stone"; seed: number; index?: number }
+
+const sameSelection = (a?: Selection, b?: Selection) => a?.layer === b?.layer && a?.index === b?.index
+const randomSeed = () => Math.floor(Math.random() * 2 ** 31) // 石の形のくじ。保存するので整数にする
 
 // Three.js のシーンを要素にマウントする。
 // 図形はページに埋め込まれた scene から読み、操作が終わるたびに同じ URL へ保存する。
@@ -48,7 +57,10 @@ type Placing = { kind: ShapeKind; index?: number } // パレットから運ん�
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
 // 生成と破棄を connect / disconnect に対応させている。
 export default class extends Controller<HTMLElement> {
-  static targets = ["toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError"]
+  static targets = [
+    "toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError",
+    "stonePanel", "stoneView", "stoneParam", "stoneParamValue",
+  ]
   static values = { scene: Object, url: String }
   declare readonly toggleTarget: HTMLButtonElement
   declare readonly previewButtonTarget: HTMLButtonElement
@@ -59,6 +71,10 @@ export default class extends Controller<HTMLElement> {
   declare readonly spacingValueTarget: HTMLOutputElement
   declare readonly paletteTarget: HTMLElement
   declare readonly saveErrorTarget: HTMLElement
+  declare readonly stonePanelTarget: HTMLElement
+  declare readonly stoneViewTarget: HTMLElement // 選んだ石を横から見せる窓
+  declare readonly stoneParamTargets: HTMLInputElement[] // data-param で大きさ・背の高さ・ゴツゴツ度を区別する
+  declare readonly stoneParamValueTargets: HTMLOutputElement[]
   declare readonly sceneValue: unknown // 保存されている scene（Rails が埋め込む）
   declare readonly urlValue: string // 保存先
 
@@ -70,9 +86,11 @@ export default class extends Controller<HTMLElement> {
   private applyView?: () => void
   private overlay?: HTMLCanvasElement
   private frustum?: Frustum
+  private fitTopDown?: () => void
 
   private shapes: Shape[] = []
-  private selected?: number
+  private stones: Stone[] = []
+  private selected?: Selection
   private drag?: Drag
   private placing?: Placing
   private lastTines = 0 // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
@@ -81,10 +99,15 @@ export default class extends Controller<HTMLElement> {
   private audio?: AudioContext // 最初のプレビューで作り、画面を離れるまで使い回す
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
   private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
+  private stonesDirty = false // 石の Mesh を置き直す必要がある（スライダーの途中は描画のフレームごとにまとめて作り直す）
+  private stoneLayer?: StoneLayer
+  private sideView?: StoneSideView
 
   connect(): void {
     // 読めない scene なら、ここで止めて編集させない（空の庭として保存し直して上書きしないため）
-    this.shapes = parseScene(this.sceneValue).shapes
+    const saved = parseScene(this.sceneValue)
+    this.shapes = saved.shapes
+    this.stones = saved.stones
     this.lastTines = inheritedTines(this.shapes)
     this.autosave = new Autosave(this.sendScene, this.showSaveResult)
     // リロードやタブを閉じたときは disconnect が呼ばれないので、ここで送れていない変更を送る
@@ -112,22 +135,12 @@ export default class extends Controller<HTMLElement> {
     sand.receiveShadow = true
     scene.add(sand, sketch)
 
-    // 見比べ用の決め打ちの石（配置は #10-2 で作る）。左から立ち石、横長の石、低めの縦長の石、平石
-    const stones = new Group()
-    const samples = [
-      { x: -1.4, z: -0.4, params: { size: 0.35, tallness: 1.4, roughness: 0.5, seed: 11 } },
-      { x: -0.5, z: -0.3, params: { size: 0.8, tallness: 0.55, roughness: 0.6, seed: 7 } },
-      { x: 0.6, z: 0.35, params: { size: 0.4, tallness: 0.9, roughness: 0.4, seed: 5 } },
-      { x: 1.35, z: 0.45, params: { size: 0.6, tallness: 0.3, roughness: 0.3, seed: 3 } },
-    ]
-    for (const { x, z, params } of samples) {
-      const stone = createStoneMesh(params)
-      stone.position.set(x, 0, z)
-      stone.rotation.y = 0.4
-      stones.add(stone)
-      this.disposables.push(stone.geometry, stone.material)
-    }
-    scene.add(stones)
+    // 石は砂紋のレイヤーによらず常に砂の上にあり、下絵（真上から）・プレビュー・仕上がりのどれでも見せる
+    const stoneLayer = new StoneLayer(GARDEN)
+    stoneLayer.sync(this.stones)
+    scene.add(stoneLayer.group)
+    this.stoneLayer = stoneLayer
+    this.sideView = new StoneSideView(0xf7f5f0)
     this.rakePreview = new RakePreview(sand, FIELD, CELLS_PER_METER, this.onPreviewFinish)
     this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
@@ -170,7 +183,6 @@ export default class extends Controller<HTMLElement> {
       camera = sketching ? topDown : perspective
       this.controls!.enabled = !sketching
       sand.visible = !sketching
-      stones.visible = !sketching
       sketch.visible = sketching
       overlay.hidden = !sketching
       this.paletteTarget.hidden = !sketching
@@ -185,8 +197,21 @@ export default class extends Controller<HTMLElement> {
       this.previewButtonTarget.textContent = this.view === "finished" ? "もう一度プレビュー" : "プレビュー"
       this.skipButtonTarget.hidden = this.view !== "preview"
       this.toggleTarget.textContent = sketching ? "仕上がりを見る" : "下絵に戻る"
+      // パレットが隠れている間は帯の高さを測れないので、下絵に戻るたびに合わせ直す
+      if (sketching) this.fitTopDown?.()
     }
     this.applyView()
+
+    // 真上から見るときは、上の帯（パレット）の下に庭を収める。帯に庭が重なると、
+    // パレットを押しただけで帯の下に図形・石が置かれ、選べなくなるため（設計メモ §17）
+    this.fitTopDown = (): void => {
+      const { clientWidth: width, clientHeight: height } = this.element
+      if (width === 0 || height === 0 || this.paletteTarget.hidden) return
+      const top = this.paletteTarget.getBoundingClientRect().bottom - this.element.getBoundingClientRect().top + TOP_BAR_GAP
+      this.frustum = topDownFrustum(GARDEN, { width, height }, TOP_DOWN_MARGIN, { top })
+      Object.assign(topDown, this.frustum)
+      topDown.updateProjectionMatrix()
+    }
 
     const resize = (): void => {
       const { clientWidth: width, clientHeight: height } = this.element
@@ -194,9 +219,7 @@ export default class extends Controller<HTMLElement> {
       renderer.setSize(width, height)
       perspective.aspect = width / height
       perspective.updateProjectionMatrix()
-      this.frustum = topDownFrustum(GARDEN, width / height, TOP_DOWN_MARGIN)
-      Object.assign(topDown, this.frustum)
-      topDown.updateProjectionMatrix()
+      this.fitTopDown?.()
       const dpr = window.devicePixelRatio
       overlay.width = Math.round(width * dpr)
       overlay.height = Math.round(height * dpr)
@@ -211,10 +234,18 @@ export default class extends Controller<HTMLElement> {
         redrawSketch(this.strokes())
         this.sketchDirty = false
       }
+      if (this.stonesDirty) {
+        stoneLayer.sync(this.stones)
+        this.stonesDirty = false
+      }
       this.rakePreview?.update()
       this.controls?.update()
       renderer.render(scene, camera)
-      if (this.view === "sketch") this.renderOverlay(overlayCtx)
+      if (this.view === "sketch") {
+        this.renderOverlay(overlayCtx)
+        const stone = this.selected?.layer === "stone" ? stoneLayer.meshAt(this.selected.index) : undefined
+        if (stone) this.sideView?.render(renderer, this.stoneViewTarget, stone)
+      }
     })
   }
 
@@ -247,9 +278,14 @@ export default class extends Controller<HTMLElement> {
     this.drag = undefined
     this.placing = undefined
 
+    this.stoneLayer?.dispose()
+    this.stoneLayer = undefined
+    this.sideView?.dispose()
+    this.sideView = undefined
     this.disposables.forEach((resource) => resource.dispose())
     this.disposables = []
     this.applyView = undefined
+    this.fitTopDown = undefined
   }
 
   increaseTines(): void {
@@ -267,31 +303,48 @@ export default class extends Controller<HTMLElement> {
     this.editSelected((shape) => changeSpacing(shape, Number(this.spacingTarget.value)))
   }
 
-  deleteShape(): void {
-    if (this.selected === undefined) return
-    this.shapes = removeShape(this.shapes, this.selected)
+  deleteSelected(): void {
+    const selected = this.selected
+    if (!selected) return
+    if (selected.layer === "shape") {
+      this.shapes = removeShape(this.shapes, selected.index)
+      this.shapesChanged()
+    } else {
+      this.stones = this.stones.filter((_, i) => i !== selected.index)
+      this.stonesChanged()
+    }
     this.select(undefined)
-    this.shapesChanged()
+    this.save()
+  }
+
+  // スライダーを動かしている間は形だけ変え、保存は離したとき（change）にする
+  changeStoneParam(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement
+    this.editSelectedStone((stone) => changeStoneParam(stone, input.dataset.param as StoneParam, Number(input.value)))
+  }
+
+  reshapeStone(): void {
+    this.editSelectedStone((stone) => reshapeStone(stone, randomSeed()))
     this.save()
   }
 
   // 操作が終わるたびに呼ぶ。ドラッグの途中など、操作の途中では呼ばない
   save(): void {
-    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes) }))
+    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones) }))
   }
 
   keydown(event: KeyboardEvent): void {
     if (this.view !== "sketch" || (event.key !== "Delete" && event.key !== "Backspace")) return
     if (event.target instanceof HTMLInputElement && event.target.type !== "range") return
     event.preventDefault()
-    this.deleteShape()
+    this.deleteSelected()
   }
 
   // パレットの項目をつかむ。ボタンにポインターを捕まえさせ、離すまでの動きをボタンで受ける
   startPlacing(event: PointerEvent): void {
     if (this.view !== "sketch") return
     const button = event.currentTarget as HTMLButtonElement
-    this.placing = { kind: button.dataset.kind as ShapeKind }
+    this.placing = { kind: button.dataset.kind as Placing["kind"], seed: randomSeed() }
     button.setPointerCapture(event.pointerId)
     button.addEventListener("pointermove", this.onPlacingMove)
     button.addEventListener("pointerup", this.onPlacingEnd)
@@ -303,21 +356,22 @@ export default class extends Controller<HTMLElement> {
     const placing = this.placing
     const point = this.gardenPoint(event)
     if (!placing || !point) return
+    const layer = placing.kind === "stone" ? "stone" : "shape"
     if (insideGarden(point, GARDEN)) {
-      const shape = newShape(placing.kind, point, this.lastTines)
-      if (placing.index === undefined) {
-        placing.index = this.shapes.length
-        this.shapes = [...this.shapes, shape]
+      if (placing.kind === "stone") {
+        const stone = newStone(point, placing.seed)
+        placing.index ??= this.stones.push(stone) - 1
+        this.stones[placing.index] = stone
       } else {
+        const shape = newShape(placing.kind, point, this.lastTines)
+        placing.index ??= this.shapes.push(shape) - 1
         this.shapes[placing.index] = shape
       }
-      this.select(placing.index)
+      this.select({ layer, index: placing.index })
     } else if (placing.index !== undefined) {
-      this.shapes = removeShape(this.shapes, placing.index)
-      placing.index = undefined
-      this.select(undefined)
+      this.removePlaced(placing)
     }
-    this.shapesChanged()
+    this.layerChanged(layer)
   }
 
   // 庭の上で離せば置いたまま選んだ状態にする。庭の外で離せば何も置かれていない
@@ -328,12 +382,22 @@ export default class extends Controller<HTMLElement> {
   }
 
   private onPlacingCancel = (event: PointerEvent): void => {
-    if (this.placing?.index !== undefined) {
-      this.shapes = removeShape(this.shapes, this.placing.index)
-      this.select(undefined)
-      this.shapesChanged()
+    const placing = this.placing
+    if (placing?.index !== undefined) {
+      this.removePlaced(placing)
+      this.layerChanged(placing.kind === "stone" ? "stone" : "shape")
     }
     this.finishPlacing(event)
+  }
+
+  // 運んでいる途中で庭の外に出たとき・取り消したときに、仮に置いた図形・石を引っ込める
+  private removePlaced(placing: Placing): void {
+    if (placing.index === undefined) return
+    const index = placing.index
+    if (placing.kind === "stone") this.stones = this.stones.filter((_, i) => i !== index)
+    else this.shapes = removeShape(this.shapes, index)
+    placing.index = undefined
+    this.select(undefined)
   }
 
   private finishPlacing(event: PointerEvent): void {
@@ -381,12 +445,12 @@ export default class extends Controller<HTMLElement> {
     if (!point) return
     const picked = this.pickAt(point)
     if (picked) {
-      this.select(picked.index)
-      this.drag = { ...picked, start: point, original: this.shapes[picked.index] }
+      this.select(picked.target)
+      this.drag = { ...picked, start: point, original: this.itemOf(picked.target) }
       this.overlay!.setPointerCapture(event.pointerId)
       return
     }
-    this.select(hitShape(this.shapes, point, GARDEN))
+    this.select(this.hitAt(point))
   }
 
   private onPointerMove = (event: PointerEvent): void => {
@@ -396,16 +460,21 @@ export default class extends Controller<HTMLElement> {
       this.overlay!.style.cursor = this.pickAt(point) ? "grab" : "default"
       return
     }
-    const { index, grip, start, original } = this.drag
-    this.shapes[index] = dragShape(original, grip, start, point)
-    this.shapesChanged()
+    const { target, grip, start, original } = this.drag
+    if (target.layer === "stone") {
+      this.stones[target.index] = dragStone(original as Stone, grip, start, point)
+      this.stonesChanged()
+    } else {
+      this.shapes[target.index] = dragShape(original as Shape, grip, start, point)
+      this.shapesChanged()
+    }
     this.overlay!.style.cursor = "grabbing"
   }
 
   private onPointerUp = (event: PointerEvent): void => {
     if (!this.drag) return
-    const { index, original } = this.drag
-    if (this.shapes[index] !== original) this.save() // つかんだだけで動かしていなければ送らない
+    const { target, original } = this.drag
+    if (this.itemOf(target) !== original) this.save() // つかんだだけで動かしていなければ送らない
     this.drag = undefined
     this.overlay!.releasePointerCapture(event.pointerId)
     this.overlay!.style.cursor = "grab"
@@ -433,16 +502,36 @@ export default class extends Controller<HTMLElement> {
     this.autosave?.flush()
   }
 
-  private select(index: number | undefined): void {
-    this.selected = index
+  private select(selection: Selection | undefined): void {
+    this.selected = selection
     this.syncPanel()
   }
 
+  private itemOf({ layer, index }: Selection): Shape | Stone {
+    return layer === "stone" ? this.stones[index] : this.shapes[index]
+  }
+
+  // 石は常に砂の上にあるので、帯より先に石を当てる
+  private hitAt(point: Point): Selection | undefined {
+    const stone = hitStone(this.stones, point)
+    if (stone !== undefined) return { layer: "stone", index: stone }
+    const shape = hitShape(this.shapes, point, GARDEN)
+    return shape === undefined ? undefined : { layer: "shape", index: shape }
+  }
+
+  private editSelectedStone(edit: (stone: Stone) => Stone): void {
+    if (this.selected?.layer !== "stone") return
+    this.stones[this.selected.index] = edit(this.stones[this.selected.index])
+    this.syncPanel()
+    this.stonesChanged()
+  }
+
   private editSelected(edit: (shape: Shape) => Shape): void {
-    if (this.selected === undefined) return
-    const before = this.shapes[this.selected]
+    if (this.selected?.layer !== "shape") return
+    const index = this.selected.index
+    const before = this.shapes[index]
     const after = edit(before)
-    this.shapes[this.selected] = after
+    this.shapes[index] = after
     if (after.rake.tines !== before.rake.tines) this.lastTines = after.rake.tines
     this.syncPanel()
     this.shapesChanged()
@@ -453,10 +542,25 @@ export default class extends Controller<HTMLElement> {
     this.sandDirty = true
   }
 
+  // 石は砂を掻かないので、下絵と砂はそのまま
+  private stonesChanged(): void {
+    this.stonesDirty = true
+  }
+
+  private layerChanged(layer: Selection["layer"]): void {
+    if (layer === "stone") this.stonesChanged()
+    else this.shapesChanged()
+  }
+
   // パネルは図形を選んでいる間だけ、真上からの画面で開く。中身は選んだ図形のレーキに合わせる
   private syncPanel(): void {
-    const shape = this.selected === undefined ? undefined : this.shapes[this.selected]
-    this.panelTarget.hidden = !shape || this.view !== "sketch"
+    const sketching = this.view === "sketch"
+    const stone = this.selected?.layer === "stone" ? this.stones[this.selected.index] : undefined
+    this.stonePanelTarget.hidden = !stone || !sketching
+    if (stone) this.syncStonePanel(stone)
+
+    const shape = this.selected?.layer === "shape" ? this.shapes[this.selected.index] : undefined
+    this.panelTarget.hidden = !shape || !sketching
     if (!shape) return
     // 単位を出すと庭の実寸の感覚とずれるので、数字だけを見せる（間隔は cm の値）
     this.tinesTarget.value = String(shape.rake.tines)
@@ -465,16 +569,37 @@ export default class extends Controller<HTMLElement> {
     this.spacingValueTarget.value = (shape.rake.spacing * 100).toFixed(1)
   }
 
+  // スライダーは図形と同じく単位なしで、値をそのまま見せる
+  private syncStonePanel(stone: Stone): void {
+    for (const input of this.stoneParamTargets) {
+      const param = input.dataset.param as StoneParam
+      Object.assign(input, { min: STONE[param].min, max: STONE[param].max, step: STONE[param].step })
+      input.value = String(stone.params[param])
+    }
+    for (const output of this.stoneParamValueTargets) {
+      output.value = stone.params[output.dataset.param as StoneParam].toFixed(2)
+    }
+  }
+
   // 選んでいる図形のハンドルと、すべての図形の目印。上の図形の目印ほど後ろに並ぶので、
   // 重なったときは上に描かれた方が選ばれるよう、近さが同じなら後ろを優先する
   private gripsOnScreen(): GripOf[] {
-    const handles = this.selected === undefined
-      ? []
-      : gripsOf(this.shapes[this.selected])
+    const selected = this.selected
+    const handles = selected
+      ? this.gripsOfItem(selected)
         .filter(({ kind }) => kind !== "move")
-        .map((grip) => ({ grip, index: this.selected! }))
-    const markers = this.shapes.map((shape, index) => ({ grip: gripsOf(shape)[0], index }))
+        .map((grip) => ({ grip, target: selected }))
+      : []
+    // 石は常に砂の上にあるので、石の目印を図形の後ろに並べて、重なったときは石を選ぶ
+    const markers = [
+      ...this.shapes.map((shape, index) => ({ grip: gripsOf(shape)[0], target: { layer: "shape" as const, index } })),
+      ...this.stones.map((stone, index) => ({ grip: stoneGrips(stone)[0], target: { layer: "stone" as const, index } })),
+    ]
     return [...handles, ...markers]
+  }
+
+  private gripsOfItem(selection: Selection): Grip[] {
+    return selection.layer === "stone" ? stoneGrips(this.stones[selection.index]) : gripsOf(this.shapes[selection.index])
   }
 
   private pickAt(point: Point): GripOf | undefined {
@@ -491,9 +616,9 @@ export default class extends Controller<HTMLElement> {
     ctx.clearRect(0, 0, width, height)
     if (!this.frustum) return
     const viewport = { width, height }
-    drawOverlay(ctx, this.gripsOnScreen().map(({ grip, index }) => ({
+    drawOverlay(ctx, this.gripsOnScreen().map(({ grip, target }) => ({
       grip,
-      selected: index === this.selected,
+      selected: sameSelection(target, this.selected),
       screen: gardenToScreen(grip.point, viewport, this.frustum!, GARDEN),
     })))
   }

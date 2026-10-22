@@ -31,6 +31,15 @@ RSpec.describe Garden, type: :model do
       end
     end
 
+    # 石を足す前の庭には stones がない。クライアントは空の配列として読む
+    context "石の配列もある場合" do
+      let(:scene) { { "version" => 1, "shapes" => [], "stones" => [ { "type" => "stone" } ] } }
+
+      it "正しい scene とみなす" do
+        expect(garden).to be_valid
+      end
+    end
+
     {
       "scene がない場合" => nil,
       "scene がオブジェクトでない場合" => [],
@@ -39,7 +48,9 @@ RSpec.describe Garden, type: :model do
       "version が 0 の場合" => { "version" => 0, "shapes" => [] },
       "shapes がない場合" => { "version" => 1 },
       "shapes が配列でない場合" => { "version" => 1, "shapes" => {} },
-      "図形がオブジェクトでない場合" => { "version" => 1, "shapes" => [ 1 ] }
+      "図形がオブジェクトでない場合" => { "version" => 1, "shapes" => [ 1 ] },
+      "stones が配列でない場合" => { "version" => 1, "shapes" => [], "stones" => {} },
+      "石がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "stones" => [ 1 ] }
     }.each do |condition, value|
       context condition do
         let(:scene) { value }

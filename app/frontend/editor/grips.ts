@@ -12,6 +12,7 @@ export type Grip =
   | { kind: 'rows'; side: 1 | -1; point: Point } // 直線の束の両側の縁。side は束の法線の向き
   | { kind: 'rings'; point: Point } // 同心円の一番外側の縁
   | { kind: 'inner'; point: Point } // 同心円の内側の余白の縁
+  | { kind: 'rotate'; point: Point } // 石の向き（editor/stones.ts）
 
 const ANGLE_ARM = 0.4 // 角度ハンドルを position から離す距離[m]
 // 直線と同心円で、最小と増減の単位をレーキ1往路ぶん（帯 1本）に揃える
