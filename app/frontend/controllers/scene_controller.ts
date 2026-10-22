@@ -2,8 +2,10 @@ import { Controller } from "@hotwired/stimulus"
 import {
   Color,
   DirectionalLight,
+  Group,
   HemisphereLight,
   OrthographicCamera,
+  PCFSoftShadowMap,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
@@ -21,6 +23,7 @@ import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh, updateSandMesh } from "../sand/sand_mesh"
 import { createSketchMesh } from "../sand/sketch_mesh"
 import { shapeToStrokes, type Shape, type Stroke } from "../sand/shapes"
+import { createStoneMesh } from "../stone/stone_mesh"
 
 // 庭の実寸[m] とハイトマップの解像度（1マス ≒ 4mm）。#5 時点の仮の値
 const GARDEN = { width: 4, depth: 2 }
@@ -95,12 +98,36 @@ export default class extends Controller<HTMLElement> {
     scene.add(new HemisphereLight(0xffffff, 0x8a8170, 1.2))
     const sun = new DirectionalLight(0xfff4e0, 2.5)
     sun.position.set(-3, 1.2, 1.5)
+    // 石の影を砂に落とす。影を写す範囲は庭全体（太陽から見た向きで庭が収まる大きさ）
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    Object.assign(sun.shadow.camera, { left: -2.5, right: 2.5, top: 2.5, bottom: -2.5, near: 0.1, far: 10 })
+    sun.shadow.bias = -0.0005
+    sun.shadow.normalBias = 0.01
     scene.add(sun)
 
     const strokes = this.strokes()
     const sand = createSandMesh(this.rakedField(strokes), GARDEN)
     const { mesh: sketch, redraw: redrawSketch } = createSketchMesh(strokes, FIELD, GARDEN)
+    sand.receiveShadow = true
     scene.add(sand, sketch)
+
+    // 見比べ用の決め打ちの石（配置は #10-2 で作る）。左から立ち石、横長の石、低めの縦長の石、平石
+    const stones = new Group()
+    const samples = [
+      { x: -1.4, z: -0.4, params: { size: 0.35, tallness: 1.4, roughness: 0.5, seed: 11 } },
+      { x: -0.5, z: -0.3, params: { size: 0.8, tallness: 0.55, roughness: 0.6, seed: 7 } },
+      { x: 0.6, z: 0.35, params: { size: 0.4, tallness: 0.9, roughness: 0.4, seed: 5 } },
+      { x: 1.35, z: 0.45, params: { size: 0.6, tallness: 0.3, roughness: 0.3, seed: 3 } },
+    ]
+    for (const { x, z, params } of samples) {
+      const stone = createStoneMesh(params)
+      stone.position.set(x, 0, z)
+      stone.rotation.y = 0.4
+      stones.add(stone)
+      this.disposables.push(stone.geometry, stone.material)
+    }
+    scene.add(stones)
     this.rakePreview = new RakePreview(sand, FIELD, CELLS_PER_METER, this.onPreviewFinish)
     this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
@@ -115,6 +142,8 @@ export default class extends Controller<HTMLElement> {
 
     const renderer = new WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = PCFSoftShadowMap
     this.element.appendChild(renderer.domElement)
     this.renderer = renderer
 
@@ -141,6 +170,7 @@ export default class extends Controller<HTMLElement> {
       camera = sketching ? topDown : perspective
       this.controls!.enabled = !sketching
       sand.visible = !sketching
+      stones.visible = !sketching
       sketch.visible = sketching
       overlay.hidden = !sketching
       this.paletteTarget.hidden = !sketching
