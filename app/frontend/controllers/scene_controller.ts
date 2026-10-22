@@ -15,6 +15,7 @@ import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from 
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
 import { gardenToScreen, screenToGarden, topDownFrustum, type Frustum } from "../editor/top_down"
 import { parseScene, toScene } from "../garden/scene"
+import { RakePreview } from "../preview/rake_preview"
 import type { Point } from "../sand/path"
 import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh, updateSandMesh } from "../sand/sand_mesh"
@@ -28,7 +29,8 @@ const CELLS_PER_METER = FIELD.width / GARDEN.width
 const TOP_DOWN_MARGIN = 0.1 // 真上から見たときの庭の周りの余白（合わせる辺の 10%）
 const GRIP_TOLERANCE = MARKER_RADIUS + 4 // 目印・ハンドルをつかめる範囲[px]
 
-type View = "sketch" | "finished" // 真上からの下絵（編集する）と、斜めから見る掻いた後の仕上がり（見るだけ）
+// 真上からの下絵（編集する）、斜めから見るプレビュー（掻いていく様子と音）、掻いた後の仕上がり（見るだけ）
+type View = "sketch" | "preview" | "finished"
 type GripOf = { grip: Grip; index: number } // どの図形のつかみ所か
 type Drag = GripOf & { start: Point; original: Shape }
 type Placing = { kind: ShapeKind; index?: number } // パレットから運んでいる図形。庭の上にある間だけ index を持つ
@@ -38,13 +40,16 @@ type Placing = { kind: ShapeKind; index?: number } // パレットから運ん�
 // 編集中は真上から下絵を見せ、目印・ハンドルのドラッグで図形を動かす。
 // 選んだ図形のレーキは編集パネルで変え、新しい図形はフッターのパレットから運んで置く。
 // 右上のボタンで、掻いた後の仕上がりを斜めからの 3D で見る。仕上がりではカメラを回せるが、編集はしない。
+// プレビューでは、平らな砂を下のレイヤーから順にレーキが掻いていく様子を、同じ斜めの視点で音と合わせて見せる。
 // 真上からでは下絵とほぼ同じ形しか見えずプレビューにならないため、立体感の出る斜めの視点にしている。
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
 // 生成と破棄を connect / disconnect に対応させている。
 export default class extends Controller<HTMLElement> {
-  static targets = ["toggle", "panel", "tines", "spacing", "spacingValue", "palette", "saveError"]
+  static targets = ["toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError"]
   static values = { scene: Object, url: String }
   declare readonly toggleTarget: HTMLButtonElement
+  declare readonly previewButtonTarget: HTMLButtonElement
+  declare readonly skipButtonTarget: HTMLButtonElement
   declare readonly panelTarget: HTMLElement
   declare readonly tinesTarget: HTMLOutputElement
   declare readonly spacingTarget: HTMLInputElement
@@ -69,6 +74,8 @@ export default class extends Controller<HTMLElement> {
   private placing?: Placing
   private lastTines = 0 // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
   private autosave?: Autosave
+  private rakePreview?: RakePreview
+  private audio?: AudioContext // 最初のプレビューで作り、画面を離れるまで使い回す
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
   private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
 
@@ -94,6 +101,7 @@ export default class extends Controller<HTMLElement> {
     const sand = createSandMesh(this.rakedField(strokes), GARDEN)
     const { mesh: sketch, redraw: redrawSketch } = createSketchMesh(strokes, FIELD, GARDEN)
     scene.add(sand, sketch)
+    this.rakePreview = new RakePreview(sand, FIELD, CELLS_PER_METER, this.onPreviewFinish)
     this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
 
@@ -129,21 +137,24 @@ export default class extends Controller<HTMLElement> {
 
     let camera: PerspectiveCamera | OrthographicCamera = topDown
     this.applyView = () => {
-      const finished = this.view === "finished"
-      camera = finished ? perspective : topDown
-      this.controls!.enabled = finished
-      sand.visible = finished
-      sketch.visible = !finished
-      overlay.hidden = finished
-      this.paletteTarget.hidden = finished
+      const sketching = this.view === "sketch"
+      camera = sketching ? topDown : perspective
+      this.controls!.enabled = !sketching
+      sand.visible = !sketching
+      sketch.visible = sketching
+      overlay.hidden = !sketching
+      this.paletteTarget.hidden = !sketching
       this.syncPanel()
-      if (finished && this.sandDirty) {
+      if (this.view === "finished" && this.sandDirty) {
         const startedAt = performance.now()
         updateSandMesh(sand, this.rakedField(this.strokes()))
         console.info(`[sekitei] 全面の掻き直し: ${Math.round(performance.now() - startedAt)}ms`)
         this.sandDirty = false
       }
-      this.toggleTarget.textContent = finished ? "下絵に戻る" : "仕上がりを見る"
+      this.previewButtonTarget.hidden = this.view === "preview"
+      this.previewButtonTarget.textContent = this.view === "finished" ? "もう一度プレビュー" : "プレビュー"
+      this.skipButtonTarget.hidden = this.view !== "preview"
+      this.toggleTarget.textContent = sketching ? "仕上がりを見る" : "下絵に戻る"
     }
     this.applyView()
 
@@ -170,6 +181,7 @@ export default class extends Controller<HTMLElement> {
         redrawSketch(this.strokes())
         this.sketchDirty = false
       }
+      this.rakePreview?.update()
       this.controls?.update()
       renderer.render(scene, camera)
       if (this.view === "sketch") this.renderOverlay(overlayCtx)
@@ -181,6 +193,11 @@ export default class extends Controller<HTMLElement> {
     window.removeEventListener("pagehide", this.flushSave)
     this.autosave?.flush()
     this.autosave = undefined
+
+    this.rakePreview?.stop()
+    this.rakePreview = undefined
+    void this.audio?.close()
+    this.audio = undefined
 
     this.resizeObserver?.disconnect()
     this.resizeObserver = undefined
@@ -298,8 +315,33 @@ export default class extends Controller<HTMLElement> {
     this.placing = undefined
   }
 
+  // 下絵からは仕上がりへ、それ以外からは下絵へ戻る。プレビューの途中で戻ると、砂は掻いた途中のまま残る
+  // （sandDirty のままなので、次に仕上がりを見るときに全面を掻き直す）
   toggleView(): void {
-    this.view = this.view === "finished" ? "sketch" : "finished"
+    if (this.view === "preview") this.rakePreview?.stop()
+    this.view = this.view === "sketch" ? "finished" : "sketch"
+    this.applyView?.()
+  }
+
+  // AudioContext はクリックの中で作る・再開する（ブラウザの自動再生の制限のため）
+  startPreview(): void {
+    if (!this.rakePreview) return
+    this.audio ??= new AudioContext()
+    void this.audio.resume()
+    this.rakePreview.start(this.strokes(), this.audio)
+    this.sandDirty = true // 終わるまで砂は掻いている途中
+    this.view = "preview"
+    this.applyView?.()
+  }
+
+  skipPreview(): void {
+    this.rakePreview?.skip()
+  }
+
+  // 最後まで掻き終えたら（飛ばしたときも）、仕上がりの画面に留まる
+  private onPreviewFinish = (): void => {
+    this.sandDirty = false
+    this.view = "finished"
     this.applyView?.()
   }
 
