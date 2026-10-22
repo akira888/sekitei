@@ -328,7 +328,7 @@ export default class extends Controller<HTMLElement> {
     if (!this.rakePreview) return
     this.audio ??= new AudioContext()
     void this.audio.resume()
-    this.rakePreview.start(this.strokes(), this.audio)
+    this.rakePreview.start(this.strokesByShape(), this.audio)
     this.sandDirty = true // 終わるまで砂は掻いている途中
     this.view = "preview"
     this.applyView?.()
@@ -480,7 +480,12 @@ export default class extends Controller<HTMLElement> {
   }
 
   private strokes(): Stroke[] {
-    return this.shapes.flatMap((shape) => shapeToStrokes(shape, GARDEN, CELLS_PER_METER))
+    return this.strokesByShape().flat()
+  }
+
+  // 図形ごとのストローク。プレビューは、重ならない図形をまとめて同時に掻くために図形の区切りを使う
+  private strokesByShape(): Stroke[][] {
+    return this.shapes.map((shape) => shapeToStrokes(shape, GARDEN, CELLS_PER_METER))
   }
 
   private rakedField(strokes: Stroke[]): SandField {

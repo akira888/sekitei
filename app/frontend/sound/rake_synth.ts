@@ -28,7 +28,7 @@ export class RakeSynth {
   private readonly grainBus: GainNode
   private readonly grainBuffer: AudioBuffer
   private readonly scheduler: GrainScheduler
-  private speed = 0
+  private grainSpeed = 0 // 粒の数・大きさを決める速度。同時に動くレーキが多いと、ノイズの速度より少し大きい
   private released = false
 
   constructor(private readonly ctx: AudioContext) {
@@ -69,17 +69,19 @@ export class RakeSynth {
 
     this.noiseSource.start()
     this.roughSource.start()
-    this.scheduler = new GrainScheduler(ctx, () => this.speed * SETTINGS.grainMaxRate, (t) => this.playGrain(t))
+    this.scheduler = new GrainScheduler(ctx, () => this.grainSpeed * SETTINGS.grainMaxRate, (t) => this.playGrain(t))
   }
 
-  // speed: 0..1。0 で無音（レーキを持ち上げている）
-  setSpeed(speed: number, time: number): void {
+  // speed: 0..1。0 で無音（レーキを持ち上げている）。
+  // grainBoost: 粒だけを speed の何倍の速さとみなすか（同時に動くレーキが多いとき、粒だけ少し増やす）
+  setSpeed(speed: number, time: number, grainBoost = 1): void {
     if (this.released) return
-    this.speed = speed
+    this.grainSpeed = Math.min(1, speed * grainBoost)
     // 音量は速度の平方根で立ち上げる（ゆっくりでも聞こえるように）
     const noiseLevel = Math.min(Math.sqrt(speed), Math.sqrt(SETTINGS.noiseCeiling))
     this.noiseGain.gain.setTargetAtTime(noiseLevel * 0.9, time, SMOOTHING)
-    this.grainBus.gain.setTargetAtTime(speed > 0 ? SETTINGS.grainGain * (0.6 + speed * 0.8) : 0, time, SMOOTHING)
+    const grainLevel = this.grainSpeed > 0 ? SETTINGS.grainGain * (0.6 + this.grainSpeed * 0.8) : 0
+    this.grainBus.gain.setTargetAtTime(grainLevel, time, SMOOTHING)
   }
 
   // 音を消してから止める。いきなり止めるとプチッと鳴るため
@@ -113,7 +115,7 @@ export class RakeSynth {
     bp.frequency.value = rand(400, 2000)
     bp.Q.value = rand(1, 2.5)
     const env = this.ctx.createGain()
-    hannEnvelope(env, time, duration, rand(0.4, 1) * (0.4 + this.speed * 0.6) * 1.5)
+    hannEnvelope(env, time, duration, rand(0.4, 1) * (0.4 + this.grainSpeed * 0.6) * 1.5)
     src.connect(bp).connect(env).connect(this.grainBus)
     src.start(time, rand(0, 0.4))
     src.stop(time + duration + 0.01)

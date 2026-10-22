@@ -1,82 +1,114 @@
 import { describe, expect, it } from 'vitest'
-import { RakePlayback, planRake } from './playback'
-import { buildTimeline } from './timeline'
-import { SandField, applyEffect, rakeField, type RakeStyle } from '../sand/rake'
-import type { Stroke } from '../sand/shapes'
+import { RakePlayback, planPreview } from './playback'
+import { SandField, rakeField } from '../sand/rake'
+import { shapeToStrokes, type Shape } from '../sand/shapes'
 
-const style: RakeStyle = { tines: 3, spacing: 12, depth: 1.5, grooveWidth: 5, pileWidth: 7 }
-// 100 × 100 マスの砂に、横（y=50 を x=10→90）と縦（x=50 を y=10→90）の順に掻く。点は 2 マス間隔
-const strokes: Stroke[] = [
-  { path: Array.from({ length: 41 }, (_, i) => ({ x: 10 + i * 2, y: 50 })), style },
-  { path: Array.from({ length: 41 }, (_, i) => ({ x: 50, y: 10 + i * 2 })), style },
-]
+// 庭 2m × 1m を 1m = 100 マス（200 × 100 マス）で掻く。歯 3本・間隔 6cm（帯の幅 18 マス）
+const GARDEN = { width: 2, depth: 1 }
+const rake = { tines: 3, spacing: 0.06 }
+const circleA: Shape = { type: 'concentric', center: { x: 0.4, y: 0.5 }, innerRadius: 0.05, rings: 1, rake } // 左の輪（x = 15〜65 マスを掻く）
+const circleC: Shape = { type: 'concentric', center: { x: 1.6, y: 0.5 }, innerRadius: 0.05, rings: 1, rake } // 右の輪（x = 135〜185 マス）
+const bandB: Shape = { type: 'straight', position: { x: 0.4, y: 0.5 }, angle: 90, rows: 1, rake } // 左の輪を縦に横切る帯
+const fill: Shape = { type: 'straight', position: { x: 1, y: 0.5 }, angle: 0, rows: 6, rake } // 庭全体の敷き詰め
+const twoRows: Shape = { type: 'straight', position: { x: 1, y: 0.5 }, angle: 0, rows: 2, rake } // y = 41 を右へ、y = 59 を左へ掻く2本
 
-// 1m = 100 マスなので各ストロークは 0.8m。巡航 1 m/s・加速と減速 0.2 秒で 0.8 + 0.2 = 1.0 秒かかる。
-// 横を 0〜1.0 秒、0.5 秒休んで縦を 1.5〜2.5 秒に掻く
-const timeline = buildTimeline(strokes.map(({ path }) => path), 100, { speed: 1, ramp: 0.2, pause: 0.5, leadIn: 0 })
+// 巡航 1 m/s、加速と減速 0.2 秒、まとまりの間 0.5 秒、最初の間なし
+const options = { speed: 1, ramp: 0.2, pause: 0.5, leadIn: 0 }
 
-// 横・縦の順に一度に掻いた砂
-const raked = () => {
-  const field = new SandField(100, 100)
-  for (const { path, style } of strokes) rakeField(field, path, style)
+const strokesOf = (shapes: Shape[]) => shapes.map((shape) => shapeToStrokes(shape, GARDEN, 100))
+const plan = (shapes: Shape[]) => planPreview(strokesOf(shapes), 200, 100, 100, options)
+
+// 配列の順に1本ずつ掻いた砂
+const raked = (shapes: Shape[]) => {
+  const field = new SandField(200, 100)
+  for (const strokes of strokesOf(shapes)) for (const { path, style } of strokes) rakeField(field, path, style)
   return field
 }
 
-const playback = () => {
-  const field = new SandField(100, 100)
-  return { field, player: new RakePlayback(field, planRake(strokes, 100, 100), timeline) }
-}
-
-describe('planRake', () => {
-  it('ストロークごとの結果を最後まで書き込むと、順に掻いた砂と同じになる', () => {
-    const field = new SandField(100, 100)
-    for (const effect of planRake(strokes, 100, 100)) applyEffect(field, effect)
-
-    expect(field.h).toEqual(raked().h)
+describe('planPreview', () => {
+  it('掻く範囲が重ならない図形は同じまとまりに、重なる図形は下のレイヤーから順に別のまとまりにする', () => {
+    expect(plan([circleA, circleC]).steps).toEqual([[0, 1]])
+    expect(plan([fill, circleA]).steps).toEqual([[0], [1]])
+    // C は最後に置いたが、A にも B にも重ならないので A と一緒に先に掻く
+    expect(plan([circleA, bandB, circleC]).steps).toEqual([[0, 2], [1]])
   })
 })
 
 describe('RakePlayback', () => {
-  it('その時刻までにレーキが通った所だけを書き込む', () => {
-    const { field, player } = playback()
+  it('最初のまとまりを掻き終えた時点では、敷き詰めは終わっていて、上に重ねる同心円にはまだ手を付けない', () => {
+    const preview = plan([fill, circleA])
+    const field = new SandField(200, 100)
+    const player = new RakePlayback(field, preview)
 
-    // 0.5 秒は横の途中。加速で 0.1m、巡航 0.3 秒で 0.3m 進み、0.4m（40 マス）先の x = 50 まで来ている
-    player.advance(0.5)
+    const step = preview.timeline.steps[0]
+    player.advance(step.start + step.duration + 0.25) // まとまりの間の休み
 
-    expect(field.at(30, 50)).toBeCloseTo(-1.5) // 通り過ぎた所は溝
-    expect(field.at(70, 50)).toBe(0) // 先はまだ平ら
+    expect(field.h).toEqual(raked([fill]).h)
   })
 
-  it('時刻を飛ばしても途中のストロークを書き漏らさず、書き込んだマスを囲む範囲を返す', () => {
-    const { field, player } = playback()
-    player.advance(0.2)
-    const before = Float32Array.from(field.h)
+  // 見せる時刻は Float32 で持つので、丸めで最後の刻みに届かずに残らないよう、掻き終えた時刻で残りをすべて書き込む
+  it('まとまりをちょうど掻き終えた時刻には、そのまとまりのマスをすべて書き込んでいる', () => {
+    const preview = plan([fill, circleA])
+    const atFirstEnd = new SandField(200, 100)
+    const atLastEnd = new SandField(200, 100)
+    const step = preview.timeline.steps[0]
 
-    const rect = player.advance(2.0) // 縦の途中まで一気に進める
+    new RakePlayback(atFirstEnd, preview).advance(step.start + step.duration)
+    new RakePlayback(atLastEnd, preview).advance(preview.timeline.duration)
 
-    expect(field.at(85, 50)).toBeCloseTo(raked().at(85, 50)) // 横の終わり近く（縦の影響を受けない所）は掻き終わっている
-    const changed = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
-    for (let k = 0; k < field.h.length; k++) {
-      if (field.h[k] === before[k]) continue
-      const x = k % 100, y = Math.floor(k / 100)
-      Object.assign(changed, { x0: Math.min(changed.x0, x), y0: Math.min(changed.y0, y), x1: Math.max(changed.x1, x), y1: Math.max(changed.y1, y) })
-    }
-    expect(rect).toEqual(changed)
+    expect(atFirstEnd.h).toEqual(raked([fill]).h)
+    expect(atLastEnd.h).toEqual(raked([fill, circleA]).h)
   })
 
-  it('同じ時刻のままなら何も書き込まない', () => {
-    const { player } = playback()
-    player.advance(0.5)
-
-    expect(player.advance(0.5)).toBeUndefined()
-  })
-
-  it('finish で残りをすべて書き込み、順に掻いた砂と同じになる', () => {
-    const { field, player } = playback()
-    player.advance(0.5)
+  it('最後まで書き込むと、配列の順に1本ずつ掻いた砂と同じになる（順番が入れ替わるときも、隣り合う帯があるときも）', () => {
+    const shapes = [circleA, bandB, circleC, twoRows]
+    const preview = plan(shapes)
+    const advanced = new SandField(200, 100)
+    new RakePlayback(advanced, preview).advance(preview.timeline.duration + 1)
+    const finished = new SandField(200, 100)
+    const player = new RakePlayback(finished, preview)
+    player.advance(1)
 
     player.finish()
 
-    expect(field.h).toEqual(raked().h)
+    expect(advanced.h).toEqual(raked(shapes).h)
+    expect(finished.h).toEqual(raked(shapes).h)
+  })
+
+  it('同じまとまりのストロークは同時に進む（途中で、平行な2本の始点側はどちらも書き込まれていて、先はまだ）', () => {
+    const preview = plan([twoRows])
+    const field = new SandField(200, 100)
+    const step = preview.timeline.steps[0]
+
+    new RakePlayback(field, preview).advance(step.start + step.duration / 2) // どちらのレーキも x = 100 付近
+
+    expect(field.at(20, 41)).toBeCloseTo(-0.75) // 右へ掻く帯の始点側（真ん中の歯の溝）
+    expect(field.at(180, 59)).toBeCloseTo(-0.75) // 左へ掻く帯の始点側
+    expect(field.at(180, 41)).toBe(0) // 右へ掻く帯の先
+    expect(field.at(20, 59)).toBe(0) // 左へ掻く帯の先
+  })
+
+  it('書き込んだマスを含む区画ごとの範囲を返し、離れた2か所を同時に掻いても間の区画は含めない', () => {
+    const preview = plan([twoRows])
+    const field = new SandField(200, 100)
+    const player = new RakePlayback(field, preview)
+    player.advance(0.3)
+    const before = Float32Array.from(field.h)
+
+    const rects = player.advance(0.4) // 左端と右端の近くを同時に掻いている
+    const inside = (x: number, y: number) => rects.some((r) => x >= r.x0 && x <= r.x1 && y >= r.y0 && y <= r.y1)
+
+    for (let k = 0; k < field.h.length; k++) {
+      if (field.h[k] !== before[k]) expect(inside(k % 200, Math.floor(k / 200))).toBe(true)
+    }
+    expect(inside(100, 41)).toBe(false)
+    expect(inside(100, 59)).toBe(false)
+  })
+
+  it('同じ時刻のままなら何も書き込まない', () => {
+    const player = new RakePlayback(new SandField(200, 100), plan([twoRows]))
+    player.advance(0.5)
+
+    expect(player.advance(0.5)).toEqual([])
   })
 })
