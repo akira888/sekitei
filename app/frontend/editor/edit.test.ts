@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { changeSpacing, changeTines, newShape, removeShape } from './edit'
+import { changeSpacing, changeTines, inheritedTines, newShape, removeShape } from './edit'
 import type { ConcentricShape, Shape, StraightShape } from '../sand/shapes'
 
 const straight = (tines = 5, spacing = 0.05): StraightShape => ({
@@ -67,5 +67,15 @@ describe('removeShape', () => {
 
     expect(removeShape(shapes, 1).map(({ rake }) => rake.tines)).toEqual([2, 4])
     expect(shapes).toHaveLength(3)
+  })
+})
+
+describe('inheritedTines', () => {
+  it('開き直した庭では、一番上（最後に置いた）図形の歯の本数を引き継ぐ', () => {
+    expect(inheritedTines([straight(3), straight(7)])).toBe(7)
+  })
+
+  it('図形のない庭では 5本から始める', () => {
+    expect(inheritedTines([])).toBe(5)
   })
 })

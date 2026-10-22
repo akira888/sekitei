@@ -9,15 +9,17 @@ import {
   WebGLRenderer,
 } from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
-import { changeSpacing, changeTines, newShape, removeShape, SPACING, type ShapeKind } from "../editor/edit"
+import { Autosave } from "../editor/autosave"
+import { changeSpacing, changeTines, inheritedTines, newShape, removeShape, SPACING, type ShapeKind } from "../editor/edit"
 import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from "../editor/grips"
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
 import { gardenToScreen, screenToGarden, topDownFrustum, type Frustum } from "../editor/top_down"
+import { parseScene, toScene } from "../garden/scene"
 import type { Point } from "../sand/path"
 import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh, updateSandMesh } from "../sand/sand_mesh"
 import { createSketchMesh } from "../sand/sketch_mesh"
-import { shapeToStrokes, type Rake, type Shape, type Stroke } from "../sand/shapes"
+import { shapeToStrokes, type Shape, type Stroke } from "../sand/shapes"
 
 // 庭の実寸[m] とハイトマップの解像度（1マス ≒ 4mm）。#5 時点の仮の値
 const GARDEN = { width: 4, depth: 2 }
@@ -26,21 +28,13 @@ const CELLS_PER_METER = FIELD.width / GARDEN.width
 const TOP_DOWN_MARGIN = 0.1 // 真上から見たときの庭の周りの余白（合わせる辺の 10%）
 const GRIP_TOLERANCE = MARKER_RADIUS + 4 // 目印・ハンドルをつかめる範囲[px]
 
-// 確認用の砂紋: 横の直線を敷き詰め、その上に同心円を掻く。配列の順番がレイヤー順（後ろほど上）。
-// 画面から動かせるが保存はしないので、リロードするとこの形に戻る。保存（#8）で scene から読む形に置き換わる
-const RAKE: Rake = { tines: 5, spacing: 0.05 }
-const DEMO_SHAPES: Shape[] = [
-  // 帯の幅 25cm × 8本 = 奥行き 2m なので、庭の中央を通る 8本で庭全体を敷き詰める
-  { type: "straight", position: { x: 2, y: 1 }, angle: 0, rows: 8, rake: RAKE },
-  { type: "concentric", center: { x: 2.75, y: 1 }, innerRadius: 0.1, rings: 3, rake: RAKE },
-]
-
 type View = "sketch" | "finished" // 真上からの下絵（編集する）と、斜めから見る掻いた後の仕上がり（見るだけ）
 type GripOf = { grip: Grip; index: number } // どの図形のつかみ所か
 type Drag = GripOf & { start: Point; original: Shape }
 type Placing = { kind: ShapeKind; index?: number } // パレットから運んでいる図形。庭の上にある間だけ index を持つ
 
 // Three.js のシーンを要素にマウントする。
+// 図形はページに埋め込まれた scene から読み、操作が終わるたびに同じ URL へ保存する。
 // 編集中は真上から下絵を見せ、目印・ハンドルのドラッグで図形を動かす。
 // 選んだ図形のレーキは編集パネルで変え、新しい図形はフッターのパレットから運んで置く。
 // 右上のボタンで、掻いた後の仕上がりを斜めからの 3D で見る。仕上がりではカメラを回せるが、編集はしない。
@@ -48,13 +42,17 @@ type Placing = { kind: ShapeKind; index?: number } // パレットから運ん�
 // Turbo 遷移で要素が外れたときに WebGL リソースを確実に解放するため、
 // 生成と破棄を connect / disconnect に対応させている。
 export default class extends Controller<HTMLElement> {
-  static targets = ["toggle", "panel", "tines", "spacing", "spacingValue", "palette"]
+  static targets = ["toggle", "panel", "tines", "spacing", "spacingValue", "palette", "saveError"]
+  static values = { scene: Object, url: String }
   declare readonly toggleTarget: HTMLButtonElement
   declare readonly panelTarget: HTMLElement
   declare readonly tinesTarget: HTMLOutputElement
   declare readonly spacingTarget: HTMLInputElement
   declare readonly spacingValueTarget: HTMLOutputElement
   declare readonly paletteTarget: HTMLElement
+  declare readonly saveErrorTarget: HTMLElement
+  declare readonly sceneValue: unknown // 保存されている scene（Rails が埋め込む）
+  declare readonly urlValue: string // 保存先
 
   private renderer?: WebGLRenderer
   private controls?: OrbitControls
@@ -65,15 +63,23 @@ export default class extends Controller<HTMLElement> {
   private overlay?: HTMLCanvasElement
   private frustum?: Frustum
 
-  private shapes: Shape[] = structuredClone(DEMO_SHAPES)
+  private shapes: Shape[] = []
   private selected?: number
   private drag?: Drag
   private placing?: Placing
-  private lastTines = RAKE.tines // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
+  private lastTines = 0 // パレットから置く図形の歯の本数。直前に変えた本数を引き継ぐ
+  private autosave?: Autosave
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
   private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
 
   connect(): void {
+    // 読めない scene なら、ここで止めて編集させない（空の庭として保存し直して上書きしないため）
+    this.shapes = parseScene(this.sceneValue).shapes
+    this.lastTines = inheritedTines(this.shapes)
+    this.autosave = new Autosave(this.sendScene, this.showSaveResult)
+    // リロードやタブを閉じたときは disconnect が呼ばれないので、ここで送れていない変更を送る
+    window.addEventListener("pagehide", this.flushSave)
+
     const scene = new Scene()
     scene.background = new Color(0xe8e4da)
 
@@ -171,6 +177,11 @@ export default class extends Controller<HTMLElement> {
   }
 
   disconnect(): void {
+    // Turbo の遷移でページを離れるとき
+    window.removeEventListener("pagehide", this.flushSave)
+    this.autosave?.flush()
+    this.autosave = undefined
+
     this.resizeObserver?.disconnect()
     this.resizeObserver = undefined
 
@@ -196,12 +207,15 @@ export default class extends Controller<HTMLElement> {
 
   increaseTines(): void {
     this.editSelected((shape) => changeTines(shape, 1))
+    this.save()
   }
 
   decreaseTines(): void {
     this.editSelected((shape) => changeTines(shape, -1))
+    this.save()
   }
 
+  // スライダーを動かしている間は形だけ変え、保存は離したとき（change）にする
   changeSpacing(): void {
     this.editSelected((shape) => changeSpacing(shape, Number(this.spacingTarget.value)))
   }
@@ -211,6 +225,12 @@ export default class extends Controller<HTMLElement> {
     this.shapes = removeShape(this.shapes, this.selected)
     this.select(undefined)
     this.shapesChanged()
+    this.save()
+  }
+
+  // 操作が終わるたびに呼ぶ。ドラッグの途中など、操作の途中では呼ばない
+  save(): void {
+    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes) }))
   }
 
   keydown(event: KeyboardEvent): void {
@@ -256,6 +276,7 @@ export default class extends Controller<HTMLElement> {
   // 庭の上で離せば置いたまま選んだ状態にする。庭の外で離せば何も置かれていない
   private onPlacingEnd = (event: PointerEvent): void => {
     this.onPlacingMove(event)
+    if (this.placing?.index !== undefined) this.save()
     this.finishPlacing(event)
   }
 
@@ -311,9 +332,33 @@ export default class extends Controller<HTMLElement> {
 
   private onPointerUp = (event: PointerEvent): void => {
     if (!this.drag) return
+    const { index, original } = this.drag
+    if (this.shapes[index] !== original) this.save() // つかんだだけで動かしていなければ送らない
     this.drag = undefined
     this.overlay!.releasePointerCapture(event.pointerId)
     this.overlay!.style.cursor = "grab"
+  }
+
+  private sendScene = async (body: string): Promise<void> => {
+    const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ""
+    // keepalive: ページを離れた後も送信を続けさせる（リロードの直前の保存を落とさないため）
+    const response = await fetch(this.urlValue, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", "Accept": "application/json", "X-CSRF-Token": token },
+      body,
+      keepalive: true,
+    })
+    if (!response.ok) throw new Error(`保存に失敗しました（${response.status}）`)
+  }
+
+  // 保存に失敗したときだけ知らせる。次に保存できたら消す
+  private showSaveResult = (saved: boolean): void => {
+    if (!this.element.isConnected) return // ページを離れた後に返事が来たとき
+    this.saveErrorTarget.hidden = saved
+  }
+
+  private flushSave = (): void => {
+    this.autosave?.flush()
   }
 
   private select(index: number | undefined): void {
