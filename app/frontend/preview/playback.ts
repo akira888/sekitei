@@ -24,17 +24,18 @@ export type PreviewPlan = {
 const TICKS_PER_SECOND = 240 // マスを見せる時刻の刻み。描画のフレームより細かければよい
 const TILE = 32 // 法線を書き直す区画の大きさ[マス]
 
-// shapes は図形ごとのストローク（配列の順がレイヤー順）
+// shapes は図形ごとのストローク（配列の順がレイヤー順）。base は掻く前の砂（石を据えた砂。sand/seating.ts）。
+// 再生ではこの写しに書き込む
 export function planPreview(
   shapes: Stroke[][],
-  width: number,
-  height: number,
+  base: SandField,
   cellsPerMeter: number,
   options: TimelineOptions,
 ): PreviewPlan {
+  const { width, height } = base
   // 1. 配列の順に1本ずつ掻いた結果を計算する。掻く範囲は形だけで決まり、高さは下の図形の上に乗るので、
   //    重ならない図形を後で入れ替えても、それぞれの結果はそのまま使える
-  const work = new SandField(width, height)
+  const work = base.clone()
   const effects = shapes.map((strokes) =>
     strokes.map(({ path, style }) => {
       const effect = rakeEffect(work, path, style)

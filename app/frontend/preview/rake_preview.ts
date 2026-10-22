@@ -39,23 +39,23 @@ export class RakePreview {
 
   constructor(
     private readonly sand: SandMesh,
-    private readonly field: { width: number; height: number },
     private readonly cellsPerMeter: number,
     private readonly onFinish: () => void,
   ) {}
 
   // shapes は図形ごとのストローク（配列の順がレイヤー順）。
   // ctx はクリックの中で作るか resume しておく（ブラウザの自動再生の制限のため）
-  start(shapes: Stroke[][], ctx: AudioContext): void {
+  // base は掻く前の砂（石を据えた砂）。写しに書き込むので、base 自体は変えない
+  start(shapes: Stroke[][], base: SandField, ctx: AudioContext): void {
     this.stop()
     const startedAt = performance.now()
-    const plan = planPreview(shapes, this.field.width, this.field.height, this.cellsPerMeter, TIMING)
+    const plan = planPreview(shapes, base, this.cellsPerMeter, TIMING)
     const strokes = shapes.reduce((sum, s) => sum + s.length, 0)
     const ms = Math.round(performance.now() - startedAt)
     console.info(`[sekitei] プレビューの計算: ${ms}ms（${plan.steps.length}まとまり・${strokes}本、${plan.timeline.duration.toFixed(1)}秒）`)
 
-    const field = new SandField(this.field.width, this.field.height)
-    updateSandMesh(this.sand, field) // 平らな砂から始める
+    const field = base.clone()
+    updateSandMesh(this.sand, field) // 石を据えた平らな砂から始める
     this.run = {
       ctx,
       startAt: ctx.currentTime,

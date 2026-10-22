@@ -21,8 +21,11 @@ import { RakePreview } from "../preview/rake_preview"
 import type { Point } from "../sand/path"
 import { SandField, rakeField } from "../sand/rake"
 import { createSandMesh, updateSandMesh } from "../sand/sand_mesh"
+import { SEAT, seatedField } from "../sand/seating"
+import type { SketchStones } from "../sand/sketch"
 import { createSketchMesh } from "../sand/sketch_mesh"
 import { shapeToStrokes, type Shape, type Stroke } from "../sand/shapes"
+import { stoneFootprint } from "../stone/footprint"
 import { StoneSideView } from "../stone/side_view"
 import type { Stone } from "../stone/stone"
 import { StoneLayer } from "../stone/stone_mesh"
@@ -101,6 +104,7 @@ export default class extends Controller<HTMLElement> {
   private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
   private stonesDirty = false // 石の Mesh を置き直す必要がある（スライダーの途中は描画のフレームごとにまとめて作り直す）
   private stoneLayer?: StoneLayer
+  private outlines?: Point[][] // 石ごとの砂の高さでの輪郭[m]。石が変わったら作り直す（stonesChanged）
   private sideView?: StoneSideView
 
   connect(): void {
@@ -131,7 +135,7 @@ export default class extends Controller<HTMLElement> {
 
     const strokes = this.strokes()
     const sand = createSandMesh(this.rakedField(strokes), GARDEN)
-    const { mesh: sketch, redraw: redrawSketch } = createSketchMesh(strokes, FIELD, GARDEN)
+    const { mesh: sketch, redraw: redrawSketch } = createSketchMesh(strokes, this.sketchStones(), FIELD, GARDEN)
     sand.receiveShadow = true
     scene.add(sand, sketch)
 
@@ -141,7 +145,7 @@ export default class extends Controller<HTMLElement> {
     scene.add(stoneLayer.group)
     this.stoneLayer = stoneLayer
     this.sideView = new StoneSideView(0xf7f5f0)
-    this.rakePreview = new RakePreview(sand, FIELD, CELLS_PER_METER, this.onPreviewFinish)
+    this.rakePreview = new RakePreview(sand, CELLS_PER_METER, this.onPreviewFinish)
     this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
 
@@ -231,7 +235,7 @@ export default class extends Controller<HTMLElement> {
     const overlayCtx = overlay.getContext("2d")!
     renderer.setAnimationLoop(() => {
       if (this.sketchDirty) {
-        redrawSketch(this.strokes())
+        redrawSketch(this.strokes(), this.sketchStones())
         this.sketchDirty = false
       }
       if (this.stonesDirty) {
@@ -422,7 +426,7 @@ export default class extends Controller<HTMLElement> {
     if (!this.rakePreview) return
     this.audio ??= new AudioContext()
     void this.audio.resume()
-    this.rakePreview.start(this.strokesByShape(), this.audio)
+    this.rakePreview.start(this.strokesByShape(), this.seatedSand(), this.audio)
     this.sandDirty = true // 終わるまで砂は掻いている途中
     this.view = "preview"
     this.applyView?.()
@@ -542,9 +546,29 @@ export default class extends Controller<HTMLElement> {
     this.sandDirty = true
   }
 
-  // 石は砂を掻かないので、下絵と砂はそのまま
+  // 石の周りは掻かずに残し根元に砂を盛るので、石を変えたら下絵も砂も描き直す
   private stonesChanged(): void {
     this.stonesDirty = true
+    this.outlines = undefined
+    this.sketchDirty = true
+    this.sandDirty = true
+  }
+
+  private stoneOutlines(): Point[][] {
+    return (this.outlines ??= this.stones.map(stoneFootprint))
+  }
+
+  // 掻く前の砂。石の輪郭から余白までは掻かずに残し、根元の砂を盛る
+  private seatedSand(): SandField {
+    return seatedField(this.stoneOutlines(), FIELD.width, FIELD.height, CELLS_PER_METER)
+  }
+
+  // 下絵は Canvas の 1px = 1マスで描くので、輪郭と余白をマスに直す
+  private sketchStones(): SketchStones {
+    return {
+      outlines: this.stoneOutlines().map((outline) => outline.map(({ x, y }) => ({ x: x * CELLS_PER_METER, y: y * CELLS_PER_METER }))),
+      margin: SEAT.margin * CELLS_PER_METER,
+    }
   }
 
   private layerChanged(layer: Selection["layer"]): void {
@@ -644,7 +668,7 @@ export default class extends Controller<HTMLElement> {
   }
 
   private rakedField(strokes: Stroke[]): SandField {
-    const field = new SandField(FIELD.width, FIELD.height)
+    const field = this.seatedSand()
     for (const { path, style } of strokes) rakeField(field, path, style)
     return field
   }
