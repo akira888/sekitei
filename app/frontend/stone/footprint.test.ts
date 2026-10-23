@@ -4,7 +4,7 @@ import { stoneFootprint } from './footprint'
 import type { Stone } from './stone'
 
 const stone = (overrides: Partial<Stone> = {}): Stone => ({
-  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, seed: 1 }, position: { x: 1, y: 0.5 }, rotation: 0, ...overrides,
+  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, moss: 0, seed: 1 }, position: { x: 1, y: 0.5 }, rotation: 0, ...overrides,
 })
 
 const extent = (points: Point[], key: 'x' | 'y') => Math.max(...points.map((p) => p[key])) - Math.min(...points.map((p) => p[key]))

@@ -5,18 +5,27 @@ import { stoneTransform, type Stone } from './stone'
 // 石の基本の色（灰色がかった茶）。頂点ごとの濃さを掛けてムラにする。
 // 頂点の色はリニアの値として扱われるので、Color を通して sRGB の色から変換しておく
 const COLOR = new Color(0x6f6b63).toArray()
+// 苔の色（暗めの緑 #56653a）。苔の中は明るい緑と暗い緑の間でムラにし、苔の濃さで石の色と混ぜる
+const MOSS_LIGHT = new Color(0x6c7d44).toArray()
+const MOSS_DARK = new Color(0x3f4c29).toArray()
 
 // 生成器の形から石の形（BufferGeometry）を作る。
 // 法線は頂点で平均してなめらかにする（面の角を残す見た目より石らしかった。ユーザー確認）
 export function createStoneGeometry(params: StoneParams): BufferGeometry {
-  const { positions, indices, shades } = stoneShape(params)
+  const { positions, indices, shades, moss, mossTones } = stoneShape(params)
   const geometry = new BufferGeometry()
   geometry.setAttribute('position', new BufferAttribute(positions, 3))
   geometry.setIndex(new BufferAttribute(indices, 1))
   geometry.computeVertexNormals()
 
   const colors = new Float32Array(shades.length * 3)
-  shades.forEach((shade, i) => COLOR.forEach((c, j) => (colors[i * 3 + j] = c * shade)))
+  shades.forEach((shade, i) => {
+    const light = (mossTones[i] + 1) / 2
+    COLOR.forEach((c, j) => {
+      const mossColor = MOSS_DARK[j] + (MOSS_LIGHT[j] - MOSS_DARK[j]) * light
+      colors[i * 3 + j] = (c + (mossColor - c) * moss[i]) * shade
+    })
+  })
   geometry.setAttribute('color', new BufferAttribute(colors, 3))
   return geometry
 }

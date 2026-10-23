@@ -41,7 +41,7 @@
   <section class="scene-stone-panel" data-scene-target="stonePanel" hidden>
     <div class="scene-stone-view" data-scene-target="stoneView" aria-hidden="true"></div>
     <div class="scene-panel-body">
-      <% { "size" => "大きさ", "tallness" => "背の高さ", "roughness" => "ゴツゴツ" }.each do |param, label| %>
+      <% { "size" => "大きさ", "tallness" => "背の高さ", "roughness" => "ゴツゴツ", "moss" => "苔" }.each do |param, label| %>
         <label class="scene-panel-row">
           <span><%= label %></span>
           <input type="range" data-scene-target="stoneParam" data-param="<%= param %>"

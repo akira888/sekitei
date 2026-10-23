@@ -3,17 +3,18 @@ import type { Stone } from '../stone/stone'
 import type { Grip } from './grips'
 
 // 石の配置と編集の計算。DOM に依存しない純粋関数だけを置く。座標は庭の座標[m]（grips.ts と同じ）。
-// 位置と向きは庭の上のドラッグ、それ以外（大きさ・背の高さ・ゴツゴツ度・形）は編集パネルで変える（設計メモ §13）
+// 位置と向きは庭の上のドラッグ、それ以外（大きさ・背の高さ・ゴツゴツ度・苔・形）は編集パネルで変える（設計メモ §13）
 
 // 編集パネルのスライダーの範囲と刻み。数字は単位なしで見せる
 export const STONE = {
   size: { min: 0.2, max: 1.2, step: 0.05 }, // 真上から見た長い方の差し渡し[m]
   tallness: { min: 0.25, max: 1.6, step: 0.05 }, // 砂から出ている高さ ÷ 大きさ
   roughness: { min: 0, max: 1, step: 0.05 },
+  moss: { min: 0, max: 1, step: 0.05 }, // 苔の量。0 で苔なし
 } as const
 export type StoneParam = keyof typeof STONE
 
-const DEFAULT = { size: 0.4, tallness: 0.6, roughness: 0.5 }
+const DEFAULT = { size: 0.4, tallness: 0.6, roughness: 0.5, moss: 0 } // 苔は足したい石にだけ足す（ユーザー判断）
 const ROTATE_ARM = 0.15 // 回転ハンドルを石の縁から離す距離[m]
 
 const add = (a: Point, b: Point, k = 1) => ({ x: a.x + b.x * k, y: a.y + b.y * k })

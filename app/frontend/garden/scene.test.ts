@@ -10,7 +10,7 @@ const concentric: ConcentricShape = {
   type: 'concentric', center: { x: 2.75, y: 1 }, innerRadius: 0.1, rings: 3, rake: { tines: 5, spacing: 0.05 },
 }
 const stone: Stone = {
-  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, seed: 12345 }, position: { x: 1, y: 0.5 }, rotation: 30,
+  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, moss: 0.3, seed: 12345 }, position: { x: 1, y: 0.5 }, rotation: 30,
 }
 
 describe('toScene', () => {
@@ -34,6 +34,13 @@ describe('parseScene', () => {
 
   it('石を足す前の scene（stones がない）は、石のない庭として読む', () => {
     expect(parseScene({ version: 1, shapes: [straight] }).stones).toEqual([])
+  })
+
+  it('苔の量を足す前に保存した石は、苔のない石として読む', () => {
+    const { moss: _, ...withoutMoss } = stone.params
+    const data = { version: 1, shapes: [], stones: [{ ...stone, params: withoutMoss }] }
+
+    expect(parseScene(data).stones[0].params).toEqual({ ...withoutMoss, moss: 0 })
   })
 
   it('石の配列が配列でない scene はエラーにする', () => {

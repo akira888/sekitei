@@ -4,13 +4,13 @@ import { changeStoneParam, dragStone, hitStone, newStone, reshapeStone, STONE, s
 
 // 庭の中ほどに置いた、大きさ 40cm の石を基本に、テストごとに一部の値だけ変える
 const stone = (overrides: Partial<Stone> = {}): Stone => ({
-  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, seed: 1 }, position: { x: 1, y: 1 }, rotation: 0, ...overrides,
+  type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, moss: 0, seed: 1 }, position: { x: 1, y: 1 }, rotation: 0, ...overrides,
 })
 
 describe('newStone', () => {
-  it('置いた位置に、既定の大きさ・背の高さ・ゴツゴツ度と、渡された seed の石を作る', () => {
+  it('置いた位置に、既定の大きさ・背の高さ・ゴツゴツ度、苔なしと、渡された seed の石を作る', () => {
     expect(newStone({ x: 1.5, y: 0.5 }, 42)).toEqual({
-      type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, seed: 42 }, position: { x: 1.5, y: 0.5 }, rotation: 0,
+      type: 'stone', params: { size: 0.4, tallness: 0.6, roughness: 0.5, moss: 0, seed: 42 }, position: { x: 1.5, y: 0.5 }, rotation: 0,
     })
   })
 })
@@ -29,6 +29,11 @@ describe('changeStoneParam', () => {
     expect(changeStoneParam(stone(), 'tallness', 1.03).params.tallness).toBeCloseTo(1.05)
   })
 
+  it('苔の量も 0〜1 の刻みで変える', () => {
+    expect(changeStoneParam(stone(), 'moss', 0.33).params.moss).toBeCloseTo(0.35)
+    expect(changeStoneParam(stone(), 'moss', 2).params.moss).toBe(1)
+  })
+
   it('範囲の外の値は範囲の端にする', () => {
     expect(changeStoneParam(stone(), 'size', 5).params.size).toBe(STONE.size.max)
     expect(changeStoneParam(stone(), 'roughness', -1).params.roughness).toBe(STONE.roughness.min)
@@ -37,7 +42,7 @@ describe('changeStoneParam', () => {
   it('ほかのパラメータと seed は変えない', () => {
     const changed = changeStoneParam(stone(), 'roughness', 0.8)
 
-    expect(changed.params).toEqual({ size: 0.4, tallness: 0.6, roughness: 0.8, seed: 1 })
+    expect(changed.params).toEqual({ size: 0.4, tallness: 0.6, roughness: 0.8, moss: 0, seed: 1 })
   })
 })
 
