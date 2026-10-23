@@ -58,6 +58,17 @@
       <input type="range" data-scene-target="spacing" data-action="input->scene#changeSpacing change->scene#save">
       <output data-scene-target="spacingValue"></output>
     </label>
+    <%# 波を選んだときだけ出す %>
+    <div class="scene-panel-rows" data-scene-target="waveRows" hidden>
+      <% { "amplitude" => "振幅", "wavelength" => "波長" }.each do |param, label| %>
+        <label class="scene-panel-row">
+          <span><%= label %></span>
+          <input type="range" data-scene-target="waveParam" data-param="<%= param %>"
+                 data-action="input->scene#changeWave change->scene#save">
+          <output data-scene-target="waveParamValue" data-param="<%= param %>"></output>
+        </label>
+      <% end %>
+    </div>
     <button type="button" class="scene-panel-delete" data-action="scene#deleteSelected">削除</button>
   </section>
 
@@ -84,6 +95,7 @@
   <footer class="scene-palette" data-scene-target="palette">
     <button type="button" data-kind="straight" data-action="pointerdown->scene#startPlacing">直線</button>
     <button type="button" data-kind="concentric" data-action="pointerdown->scene#startPlacing">同心円</button>
+    <button type="button" data-kind="wave" data-action="pointerdown->scene#startPlacing">波</button>
     <button type="button" data-kind="stone" data-action="pointerdown->scene#startPlacing">石</button>
     <%# 運んで置く項目ではなく、庭の外周の砂利の縁を敷く・外す切り替え %>
     <button type="button" class="scene-palette-toggle" data-scene-target="gravelToggle" data-action="scene#toggleGravel">砂利の縁</button>

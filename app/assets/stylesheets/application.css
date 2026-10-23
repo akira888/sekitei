@@ -106,6 +106,17 @@ body {
   align-self: flex-start;
 }
 
+/* 編集パネルの中で、図形の種類によって出し入れする行のまとまり */
+.scene-panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.scene-panel-rows[hidden] {
+  display: none;
+}
+
 .scene-panel-row {
   display: flex;
   align-items: center;

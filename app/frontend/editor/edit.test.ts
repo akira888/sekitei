@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { changeSpacing, changeTines, inheritedTines, newShape, removeShape } from './edit'
-import type { ConcentricShape, Shape, StraightShape } from '../sand/shapes'
+import { WAVE, changeSpacing, changeTines, changeWave, inheritedTines, newShape, removeShape } from './edit'
+import type { ConcentricShape, Shape, StraightShape, WaveShape } from '../sand/shapes'
 
 const straight = (tines = 5, spacing = 0.05): StraightShape => ({
   type: 'straight', position: { x: 2, y: 1 }, angle: 30, rows: 4, rake: { tines, spacing },
@@ -77,5 +77,34 @@ describe('inheritedTines', () => {
 
   it('図形のない庭では 5本から始める', () => {
     expect(inheritedTines([])).toBe(5)
+  })
+})
+
+describe('波', () => {
+  const wave = (overrides: Partial<WaveShape> = {}): WaveShape => ({
+    type: 'wave', position: { x: 2, y: 1 }, angle: 0, rows: 1, rake: { tines: 5, spacing: 0.05 }, amplitude: 0.06, wavelength: 0.8, ...overrides,
+  })
+
+  it('パレットから置く波は、振幅 6cm・波長 80cm・帯 1本', () => {
+    expect(newShape('wave', { x: 1, y: 0.5 }, 5)).toEqual({
+      type: 'wave', position: { x: 1, y: 0.5 }, angle: 0, rows: 1, rake: { tines: 5, spacing: 0.05 }, amplitude: 0.06, wavelength: 0.8,
+    })
+  })
+
+  it('振幅・波長を 1cm 刻みに丸めて変える', () => {
+    expect(changeWave(wave(), 'wavelength', 1.234).wavelength).toBeCloseTo(1.23)
+    expect(changeWave(wave(), 'amplitude', 0.0712).amplitude).toBeCloseTo(0.07)
+  })
+
+  it('波長は 0.3〜2.0m、振幅は 1cm〜波長の 10% に収める', () => {
+    expect(changeWave(wave(), 'wavelength', 5).wavelength).toBe(WAVE.wavelength.max)
+    expect(changeWave(wave(), 'amplitude', 0).amplitude).toBe(WAVE.amplitude.min)
+    expect(changeWave(wave(), 'amplitude', 0.5).amplitude).toBeCloseTo(0.8 * 0.1)
+  })
+
+  it('波長を縮めて振幅が上限を超えたら、振幅も上限まで下げる', () => {
+    const shorter = changeWave(wave({ amplitude: 0.08 }), 'wavelength', 0.4)
+
+    expect(shorter.amplitude).toBeCloseTo(0.04)
   })
 })

@@ -11,7 +11,7 @@ import {
 } from "three"
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 import { Autosave } from "../editor/autosave"
-import { changeSpacing, changeTines, inheritedTines, newShape, removeShape, SPACING, type ShapeKind } from "../editor/edit"
+import { changeSpacing, changeTines, changeWave, inheritedTines, newShape, removeShape, SPACING, WAVE, type ShapeKind, type WaveParam } from "../editor/edit"
 import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from "../editor/grips"
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
 import { changeStoneParam, dragStone, hitStone, newStone, reshapeStone, STONE, stoneGrips, type StoneParam } from "../editor/stones"
@@ -65,6 +65,7 @@ const randomSeed = () => Math.floor(Math.random() * 2 ** 31) // 石の形のく�
 export default class extends Controller<HTMLElement> {
   static targets = [
     "toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError",
+    "waveRows", "waveParam", "waveParamValue",
     "stonePanel", "stoneView", "stoneParam", "stoneParamValue", "gravelToggle",
     "completeButton", "copyButton", "completionDialog", "completionName", "completionError", "title",
   ]
@@ -76,6 +77,9 @@ export default class extends Controller<HTMLElement> {
   declare readonly tinesTarget: HTMLOutputElement
   declare readonly spacingTarget: HTMLInputElement
   declare readonly spacingValueTarget: HTMLOutputElement
+  declare readonly waveRowsTarget: HTMLElement // 波を選んだときだけ出す行
+  declare readonly waveParamTargets: HTMLInputElement[] // data-param で振幅・波長を区別する
+  declare readonly waveParamValueTargets: HTMLOutputElement[]
   declare readonly paletteTarget: HTMLElement
   declare readonly saveErrorTarget: HTMLElement
   declare readonly stonePanelTarget: HTMLElement
@@ -352,6 +356,12 @@ export default class extends Controller<HTMLElement> {
   // スライダーを動かしている間は形だけ変え、保存は離したとき（change）にする
   changeSpacing(): void {
     this.editSelected((shape) => changeSpacing(shape, Number(this.spacingTarget.value)))
+  }
+
+  // スライダーを動かしている間は形だけ変え、保存は離したとき（change）にする
+  changeWave(event: Event): void {
+    const input = event.currentTarget as HTMLInputElement
+    this.editSelected((shape) => shape.type === "wave" ? changeWave(shape, input.dataset.param as WaveParam, Number(input.value)) : shape)
   }
 
   deleteSelected(): void {
@@ -717,6 +727,18 @@ export default class extends Controller<HTMLElement> {
     Object.assign(this.spacingTarget, { min: SPACING.min, max: SPACING.max, step: SPACING.step })
     this.spacingTarget.value = String(shape.rake.spacing)
     this.spacingValueTarget.value = (shape.rake.spacing * 100).toFixed(1)
+    // 波の振幅・波長。数字は歯の間隔と同じく cm の値を単位なしで見せる。振幅の上限は波長で変わる
+    this.waveRowsTarget.hidden = shape.type !== "wave"
+    if (shape.type === "wave") {
+      for (const input of this.waveParamTargets) {
+        const param = input.dataset.param as WaveParam
+        const max = param === "wavelength" ? WAVE.wavelength.max : shape.wavelength * WAVE.amplitude.maxRatio
+        const min = param === "wavelength" ? WAVE.wavelength.min : WAVE.amplitude.min
+        Object.assign(input, { min, max, step: WAVE.step })
+        input.value = String(shape[param])
+      }
+      for (const output of this.waveParamValueTargets) output.value = (shape[output.dataset.param as WaveParam] * 100).toFixed(0)
+    }
   }
 
   // カメラを視点に置き、動ける範囲を決める。左右の範囲がなければ一周回せる

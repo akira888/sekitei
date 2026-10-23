@@ -27,7 +27,19 @@ export type ConcentricShape = {
   rake: Rake
 }
 
-export type Shape = StraightShape | ConcentricShape
+// 直線の中心線を 振幅 × sin(2π × 進んだ距離 ÷ 波長) だけ横にずらした波を、庭の端から端まで走らせる。
+// 帯は同じ形の波を帯の幅ずつ横に平行移動して並べる（何本並べても形がそろう。斜面では帯の間隔が少し詰まる）
+export type WaveShape = {
+  type: 'wave'
+  position: Point // 帯の束の中心の波が、中心線を横切る1点[m]
+  angle: number // 波の進む向き[度]。0 で x 方向、90 で y 方向
+  rows: number // 並べる帯の本数。position を中心に両側へ均等に並べる
+  amplitude: number // 振幅[m]
+  wavelength: number // 波長[m]
+  rake: Rake
+}
+
+export type Shape = StraightShape | ConcentricShape | WaveShape
 
 export type Garden = { width: number; depth: number } // [m]
 
@@ -44,6 +56,12 @@ export function shapeToStrokes(shape: Shape, garden: Garden, cellsPerMeter: numb
       const position = { x: shape.position.x * cellsPerMeter, y: shape.position.y * cellsPerMeter }
       const W = garden.width * cellsPerMeter, H = garden.depth * cellsPerMeter
       return straightPaths(position, shape.angle, shape.rows, W, H, band).map((path) => ({ path, style }))
+    }
+    case 'wave': {
+      const position = { x: shape.position.x * cellsPerMeter, y: shape.position.y * cellsPerMeter }
+      const W = garden.width * cellsPerMeter, H = garden.depth * cellsPerMeter
+      const wave = { amplitude: shape.amplitude * cellsPerMeter, wavelength: shape.wavelength * cellsPerMeter }
+      return straightPaths(position, shape.angle, shape.rows, W, H, band, wave).map((path) => ({ path, style }))
     }
     case 'concentric': {
       const center = { x: shape.center.x * cellsPerMeter, y: shape.center.y * cellsPerMeter }
@@ -70,12 +88,16 @@ export function rakeStyle(rake: Rake, cellsPerMeter: number): RakeStyle {
 
 // position を中心に、平行な直線を帯の幅ずつずらして rows 本引く。行きと帰りで向きを交互に変える。
 // 中心線が庭の外でも帯の半分が庭に掛かることがあるので、庭を帯の幅の半分広げた範囲まで線を引く
-// （範囲外のマスは掻く処理の側で無視される）。範囲に掛からない帯は出さない
-function straightPaths(position: Point, angleDeg: number, rows: number, W: number, H: number, band: number): Point[][] {
+// （範囲外のマスは掻く処理の側で無視される）。範囲に掛からない帯は出さない。
+// wave を渡すと、どの線も 振幅 × sin(2π × position から進んだ距離 ÷ 波長) だけ横にずらした波にする（[マス]）
+function straightPaths(
+  position: Point, angleDeg: number, rows: number, W: number, H: number, band: number,
+  wave?: { amplitude: number; wavelength: number },
+): Point[][] {
   const a = (angleDeg * Math.PI) / 180
   const dir = { x: Math.cos(a), y: Math.sin(a) }
   const normal = { x: -dir.y, y: dir.x }
-  const margin = band / 2
+  const margin = band / 2 + (wave?.amplitude ?? 0)
   const bounds = { x0: -margin, y0: -margin, x1: W + margin, y1: H + margin }
 
   const paths: Point[][] = []
@@ -84,7 +106,14 @@ function straightPaths(position: Point, angleDeg: number, rows: number, W: numbe
     const origin = { x: position.x + normal.x * offset, y: position.y + normal.y * offset }
     const span = clipToRect(origin, dir, bounds)
     if (!span) continue
-    const path = segment(origin, dir, span[0], span[1])
+    const line = segment(origin, dir, span[0], span[1])
+    const path = wave
+      ? line.map((p) => {
+        const t = (p.x - origin.x) * dir.x + (p.y - origin.y) * dir.y
+        const shift = wave.amplitude * Math.sin((2 * Math.PI * t) / wave.wavelength)
+        return { x: p.x + normal.x * shift, y: p.y + normal.y * shift }
+      })
+      : line
     paths.push(paths.length % 2 === 0 ? path : path.reverse())
   }
   return paths
