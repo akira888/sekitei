@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dragShape, gripsOf, hitShape, pickGrip, type Grip } from './grips'
-import type { ConcentricShape, Rake, Shape, StraightShape } from '../sand/shapes'
+import type { ConcentricShape, Rake, Shape, StraightShape, WaveShape } from '../sand/shapes'
 import type { Point } from '../sand/path'
 
 const garden = { width: 4, depth: 2 }
@@ -157,5 +157,30 @@ describe('dragShape', () => {
     drag(shape, isKind('move'), { x: 1, y: 0 })
 
     expect(shape.position).toEqual({ x: 2, y: 1 })
+  })
+})
+
+describe('波', () => {
+  const wave = (overrides: Partial<WaveShape> = {}): WaveShape => ({
+    type: 'wave', position: { x: 2, y: 1 }, angle: 0, rows: 1, rake, amplitude: 0.1, wavelength: 0.8, ...overrides,
+  })
+
+  it('当たりは、波に沿った帯が掻く範囲（帯 + 土手）', () => {
+    // 波の山（x = 2.2 で中心線から +10cm）の上は当たり、同じ x で波から 25cm 離れた所は外れ
+    expect(hitShape([wave()], { x: 2.2, y: 1.1 }, garden)).toBe(0)
+    expect(hitShape([wave()], { x: 2.2, y: 1.1 - 0.25 }, garden)).toBeUndefined()
+    // 中心線の上でも、波の山から 10cm 離れているので届く範囲（17.9cm）の中
+    expect(hitShape([wave()], { x: 2.2, y: 1 }, garden)).toBe(0)
+  })
+
+  it('目印・角度・本数のハンドルは直線と同じ', () => {
+    const kinds = gripsOf(wave()).map((g) => g.kind)
+    expect(kinds).toEqual(gripsOf(straight({ rows: 1 })).map((g) => g.kind))
+  })
+
+  it('ドラッグは直線と同じに動き、振幅・波長は変えない', () => {
+    const moved = drag(wave(), isKind('move'), { x: 0.5, y: 0.2 }) as WaveShape
+
+    expect(moved).toMatchObject({ type: 'wave', position: { x: 2.5, y: 1.2 }, amplitude: 0.1, wavelength: 0.8 })
   })
 })

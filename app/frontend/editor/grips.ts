@@ -35,7 +35,8 @@ function axes(angleDeg: number) {
 export function gripsOf(shape: Shape): Grip[] {
   const band = bandOf(shape.rake)
   switch (shape.type) {
-    case 'straight': {
+    case 'straight':
+    case 'wave': { // 波も目印・角度・本数のハンドルは直線と同じ
       const { dir, normal } = axes(shape.angle)
       const halfWidth = (shape.rows * band) / 2
       return [
@@ -94,6 +95,13 @@ function covers(shape: Shape, point: Point): boolean {
       const offset = dot(add(point, shape.position, -1), normal)
       return Math.abs(offset) <= ((shape.rows - 1) / 2) * band + reach
     }
+    case 'wave': {
+      // 帯は同じ形の波を平行移動して並べるので、その地点の波のずれを引けば直線と同じに測れる
+      const { dir, normal } = axes(shape.angle)
+      const relative = add(point, shape.position, -1)
+      const shift = shape.amplitude * Math.sin((2 * Math.PI * dot(relative, dir)) / shape.wavelength)
+      return Math.abs(dot(relative, normal) - shift) <= ((shape.rows - 1) / 2) * band + reach
+    }
     case 'concentric': {
       const r = dist(shape.center, point)
       const first = shape.innerRadius + band / 2 // 一番内側の輪の中心線の半径
@@ -109,7 +117,7 @@ export function dragShape(shape: Shape, grip: Grip, start: Point, current: Point
   const target = add(grip.point, delta)
   const band = bandOf(shape.rake)
 
-  if (shape.type === 'straight') {
+  if (shape.type === 'straight' || shape.type === 'wave') {
     switch (grip.kind) {
       case 'move':
         return { ...shape, position: add(shape.position, delta) }

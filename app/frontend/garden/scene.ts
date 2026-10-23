@@ -1,4 +1,4 @@
-import { SPACING, TINES } from '../editor/edit'
+import { SPACING, TINES, WAVE, clampAmplitude } from '../editor/edit'
 import { STONE } from '../editor/stones'
 import type { Shape } from '../sand/shapes'
 import type { Stone } from '../stone/stone'
@@ -48,9 +48,17 @@ const clamp = (value: number, { min, max }: { min: number; max: number }) =>
 
 function readShape(shape: Shape): Shape {
   const rake = { tines: Math.round(clamp(shape.rake.tines, TINES)), spacing: clamp(shape.rake.spacing, SPACING) }
-  return shape.type === 'straight'
-    ? { ...shape, rows: Math.round(clamp(shape.rows, LIMITS.bands)), rake }
-    : { ...shape, rings: Math.round(clamp(shape.rings, LIMITS.bands)), rake }
+  switch (shape.type) {
+    case 'straight':
+      return { ...shape, rows: Math.round(clamp(shape.rows, LIMITS.bands)), rake }
+    case 'concentric':
+      return { ...shape, rings: Math.round(clamp(shape.rings, LIMITS.bands)), rake }
+    case 'wave': {
+      const wavelength = clamp(shape.wavelength, WAVE.wavelength)
+      const amplitude = Number.isFinite(shape.amplitude) ? clampAmplitude(shape.amplitude, wavelength) : WAVE.amplitude.min
+      return { ...shape, rows: Math.round(clamp(shape.rows, LIMITS.bands)), rake, wavelength, amplitude }
+    }
+  }
 }
 
 function readStone(stone: Stone): Stone {

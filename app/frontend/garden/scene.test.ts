@@ -89,6 +89,12 @@ describe('parseScene', () => {
       expect(scene.shapes[1]).toMatchObject({ rings: 1, rake: { tines: 2, spacing: 0.03 } })
     })
 
+    it('波の振幅・波長も、編集画面と同じ範囲に収める', () => {
+      const wave = { type: 'wave', position: { x: 2, y: 1 }, angle: 0, rows: 1, rake: { tines: 5, spacing: 0.05 }, amplitude: 3, wavelength: 50 }
+
+      expect(read({ shapes: [wave] }).shapes[0]).toMatchObject({ wavelength: 2, amplitude: 0.2 })
+    })
+
     it('石の大きさ・背の高さ・ゴツゴツ度・苔は、編集画面のスライダーと同じ範囲に収める', () => {
       const scene = read({ stones: [{ ...stone, params: { size: 30, tallness: 0, roughness: 9, moss: -1, seed: 7 } }] })
 

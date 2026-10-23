@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shapeToStrokes, type Rake, type StraightShape } from './shapes'
+import { shapeToStrokes, type Rake, type StraightShape, type WaveShape } from './shapes'
 import type { Point } from './path'
 
 // 庭 4m × 2m、1m = 100マス → 400 × 200 マス
@@ -106,6 +106,52 @@ describe('shapeToStrokes', () => {
     for (const { path } of strokes) {
       for (const gap of gaps(path)) expect(gap).toBeLessThanOrEqual(2 + 1e-6)
       for (const gap of gaps(path).slice(1, -1)) expect(gap).toBeGreaterThan(1.5)
+    }
+  })
+})
+
+describe('shapeToStrokes の波', () => {
+  // 庭 4m × 2m、1m = 100マス。中央を横に走る波、振幅 10cm・波長 80cm
+  const wave = (overrides: Partial<WaveShape> = {}): WaveShape => ({
+    type: 'wave', position: { x: 2, y: 1 }, angle: 0, rows: 1, rake, amplitude: 0.1, wavelength: 0.8, ...overrides,
+  })
+
+  it('中心線から 振幅 × sin(2π × 進んだ距離 ÷ 波長) だけ横にずれ、position で中心線を横切る', () => {
+    const [{ path }] = shapeToStrokes(wave(), garden, cellsPerMeter)
+
+    for (const p of path) {
+      if (p.x < 0 || p.x > 400) continue
+      expect(p.y).toBeCloseTo(100 + 10 * Math.sin((2 * Math.PI * (p.x - 200)) / 80), 6)
+    }
+  })
+
+  it('庭の端から端まで走る（振幅と帯の幅の半分だけ外まで）', () => {
+    const [{ path }] = shapeToStrokes(wave(), garden, cellsPerMeter)
+    const xs = path.map((p) => p.x)
+
+    expect(Math.min(...xs)).toBeLessThan(0)
+    expect(Math.max(...xs)).toBeGreaterThan(400)
+  })
+
+  it('帯を rows 本、同じ形の波を帯の幅ずつ横に平行移動して並べる', () => {
+    const strokes = shapeToStrokes(wave({ rows: 3 }), garden, cellsPerMeter)
+    expect(strokes).toHaveLength(3)
+
+    // どの帯のどの点も「同じ形の波 + 帯ごとに一定のずれ」で、ずれは帯の幅（30マス）ずつ
+    const offsets = strokes.map(({ path }) => {
+      const shifts = path.map((p) => p.y - 100 - 10 * Math.sin((2 * Math.PI * (p.x - 200)) / 80))
+      for (const shift of shifts) expect(shift).toBeCloseTo(shifts[0], 6)
+      return Math.round(shifts[0]) + 0 // -0 を 0 にそろえる
+    })
+    expect(offsets.sort((a, b) => a - b)).toEqual([-30, 0, 30])
+  })
+
+  it('斜めの波は、向きに沿って進み、向きに垂直にずれる', () => {
+    const [{ path }] = shapeToStrokes(wave({ angle: 90 }), garden, cellsPerMeter)
+
+    for (const p of path) {
+      if (p.y < 0 || p.y > 200) continue
+      expect(p.x).toBeCloseTo(200 - 10 * Math.sin((2 * Math.PI * (p.y - 100)) / 80), 6)
     }
   })
 })
