@@ -20,12 +20,16 @@ export function updateNormals(pixels: Uint8Array, field: SandField, changed: Cel
   }, strength)
 }
 
+// 傾きは Sobel（斜めの隣も含め、1 : 2 : 1 の重みでならした左右・上下の差）で求める。
+// 左右・上下の隣の差だけで決めると、マス単位の段差（同心円の境目のギザギザ、山の表面のまだら、小さな点）が
+// そのまま陰影に出たため。なめらかな斜面の傾きは隣の差で決めたときと同じになる
 function writeNormals(pixels: Uint8Array, field: SandField, rect: CellRect, strength: number): void {
   const { width: W, height: H } = field
+  const h = (x: number, y: number) => field.at(Math.min(Math.max(x, 0), W - 1), Math.min(Math.max(y, 0), H - 1))
   for (let y = rect.y0; y <= rect.y1; y++) {
     for (let x = rect.x0; x <= rect.x1; x++) {
-      const gx = ((field.at(Math.min(x + 1, W - 1), y) - field.at(Math.max(x - 1, 0), y)) / 2) * strength
-      const gy = ((field.at(x, Math.min(y + 1, H - 1)) - field.at(x, Math.max(y - 1, 0))) / 2) * strength
+      const gx = ((h(x + 1, y - 1) + 2 * h(x + 1, y) + h(x + 1, y + 1) - h(x - 1, y - 1) - 2 * h(x - 1, y) - h(x - 1, y + 1)) / 8) * strength
+      const gy = ((h(x - 1, y + 1) + 2 * h(x, y + 1) + h(x + 1, y + 1) - h(x - 1, y - 1) - 2 * h(x, y - 1) - h(x + 1, y - 1)) / 8) * strength
       const len = Math.hypot(gx, gy, 1)
       const o = (y * W + x) * 4
       pixels[o] = encode(-gx / len)

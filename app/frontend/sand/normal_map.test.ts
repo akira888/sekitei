@@ -6,6 +6,31 @@ const pixelAt = (pixels: Uint8Array, width: number, x: number, y: number) =>
   Array.from(pixels.slice((y * width + x) * 4, (y * width + x) * 4 + 4))
 
 describe('normalMapPixels', () => {
+  // マス単位の段差（同心円の境目のギザギザ、山の表面のまだら、小さな点）が陰影に出ないよう、
+  // 斜めの隣も含めてならした高さの傾きで法線を決める
+  describe('マス単位の段差をならす', () => {
+    const spike = () => {
+      const field = new SandField(11, 11)
+      field.set(5, 5, 1)
+      return normalMapPixels(field)
+    }
+
+    it('1マスだけ飛び出した点のすぐ隣は、左右の差だけで決めるより傾きが穏やか', () => {
+      const [r] = pixelAt(spike(), 11, 6, 5)
+      const sharp = Math.round((0.5 / Math.hypot(0.5, 1)) * 127 + 128) // 左右の差だけで決めたときの値
+
+      expect(r).toBeGreaterThan(128)
+      expect(r).toBeLessThan(sharp - 10)
+    })
+
+    it('斜めの隣にも、傾きがなだらかに広がる', () => {
+      const [r, g] = pixelAt(spike(), 11, 6, 6)
+
+      expect(r).toBeGreaterThan(128)
+      expect(g).toBeGreaterThan(128)
+    })
+  })
+
   it('平らな砂は真上向き (128, 128, 255) になる', () => {
     const field = new SandField(4, 4)
 

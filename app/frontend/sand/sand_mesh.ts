@@ -5,9 +5,12 @@ import {
   Mesh,
   MeshStandardMaterial,
   PlaneGeometry,
+  RepeatWrapping,
   RGBAFormat,
+  ShaderChunk,
   UnsignedByteType,
 } from 'three'
+import { GRAIN, GRAIN_NORMAL_HOOK, grainNormalPixels, grainPixels } from './grain'
 import { normalMapPixels, updateNormals } from './normal_map'
 import type { CellRect, SandField } from './rake'
 
@@ -23,8 +26,42 @@ export function createSandMesh(field: SandField, size: { width: number; depth: n
   normalMap.anisotropy = 8
   normalMap.needsUpdate = true
 
-  const material = new MeshStandardMaterial({ color: 0xd9d2c3, roughness: 1, metalness: 0, normalMap })
+  // 砂の粒の色のムラを繰り返し貼る。模様の平均の明るさの分だけ砂の色を明るくして、全体の明るさを変えない
+  const grain = tiledTexture(grainPixels(), size)
+  // 粒の細かい凹凸。色の粒と同じ繰り返しで、砂紋の法線に重ねる（下の onBeforeCompile）
+  const grainNormal = tiledTexture(grainNormalPixels(), size)
+
+  // 砂の色は白川砂に寄せて、少し白く黄みを抑える（下絵の砂の色 #d9d2c3 より明るい）
+  const material = new MeshStandardMaterial({ color: 0xe3ded4, roughness: 1, metalness: 0, normalMap, map: grain })
+  material.color.multiplyScalar(1 / GRAIN.mean)
+  // 砂紋の法線（接空間）に、粒の凹凸の法線を重ねる（whiteout ブレンド）。色の粒と同じ uv（vMapUv）で引く
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.grainNormal = { value: grainNormal }
+    shader.fragmentShader = `uniform sampler2D grainNormal;\n${shader.fragmentShader}`.replace(
+      '#include <normal_fragment_maps>',
+      ShaderChunk.normal_fragment_maps.replace(
+        GRAIN_NORMAL_HOOK,
+        `vec3 grainN = texture2D( grainNormal, vMapUv ).xyz * 2.0 - 1.0;
+        mapN = normalize( vec3( mapN.xy + grainN.xy, mapN.z * grainN.z ) );
+        ${GRAIN_NORMAL_HOOK}`,
+      ),
+    )
+  }
+  material.userData.grainNormal = grainNormal // 破棄するときに使う
   return new Mesh(geometry, material)
+}
+
+// 庭に繰り返し貼る、粒の画像のテクスチャ。GRAIN.tile[m] ごとに1枚
+function tiledTexture(pixels: Uint8Array, size: { width: number; depth: number }): DataTexture {
+  const texture = new DataTexture(pixels, GRAIN.size, GRAIN.size, RGBAFormat, UnsignedByteType)
+  texture.wrapS = texture.wrapT = RepeatWrapping
+  texture.repeat.set(size.width / GRAIN.tile, size.depth / GRAIN.tile)
+  texture.magFilter = LinearFilter
+  texture.minFilter = LinearMipmapLinearFilter
+  texture.generateMipmaps = true
+  texture.anisotropy = 8
+  texture.needsUpdate = true
+  return texture
 }
 
 export function updateSandMesh(mesh: Mesh<PlaneGeometry, MeshStandardMaterial>, field: SandField): void {

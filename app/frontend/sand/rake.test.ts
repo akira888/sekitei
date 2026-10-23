@@ -54,6 +54,84 @@ describe('rakeField', () => {
     expect(field.at(50, 50)).toBeCloseTo(-1.5) // 隣の歯はそのまま掘る
   })
 
+  // 盛る量を、パスの点ごとに「近いマスで掘った量」を数えて決めると、斜めの線や曲線では点ごとに数えるマスの数がばらつき、
+  // 山の高さが畝に沿って上下した（同心円の畝のうねり、斜めの直線の粗さ）
+  it('斜めの直線でも、山の頂の高さは畝に沿って一定', () => {
+    const tilted: RakeStyle = { tines: 3, spacing: 12.8, depth: 1.6, grooveWidth: 5.33, pileWidth: 7.47 }
+    for (const deg of [0, 30, 45]) {
+      const a = (deg * Math.PI) / 180
+      const field = new SandField(400, 400)
+      rakeField(field, Array.from({ length: 151 }, (_, i) => ({ x: 50 + Math.cos(a) * i * 2, y: 100 + Math.sin(a) * i * 2 })), tilted)
+      // 真ん中の歯と隣の歯の間の山の頂（中心線から歯の間隔の半分）に沿って、高さを補間して拾う
+      const heights: number[] = []
+      for (let t = 60; t <= 240; t += 0.5) {
+        const x = 50 + Math.cos(a) * t - Math.sin(a) * 6.4, y = 100 + Math.sin(a) * t + Math.cos(a) * 6.4
+        const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0
+        heights.push(field.at(x0, y0) * (1 - fx) * (1 - fy) + field.at(x0 + 1, y0) * fx * (1 - fy)
+          + field.at(x0, y0 + 1) * (1 - fx) * fy + field.at(x0 + 1, y0 + 1) * fx * fy)
+      }
+      const mean = heights.reduce((sum, h) => sum + h, 0) / heights.length
+      const sd = Math.sqrt(heights.reduce((sum, h) => sum + (h - mean) ** 2, 0) / heights.length)
+
+      expect(sd / mean).toBeLessThan(0.01)
+    }
+  })
+
+  it('同心円でも、山の頂の高さは輪に沿って一定（畝がうねらない）', () => {
+    const ring: RakeStyle = { tines: 3, spacing: 12.8, depth: 1.6, grooveWidth: 5.33, pileWidth: 7.47 }
+    const field = new SandField(300, 300)
+    const radius = 80
+    // 中心 (150, 150) の円を 2 マス間隔の点でたどる（shapes.ts の同心円と同じ打ち方）
+    const count = Math.ceil((2 * Math.PI * radius) / 2)
+    rakeField(field, Array.from({ length: count + 1 }, (_, i) => {
+      const angle = Math.min((i * 2) / radius, 2 * Math.PI)
+      return { x: 150 + Math.cos(angle) * radius, y: 150 + Math.sin(angle) * radius }
+    }), ring)
+    // 真ん中の歯と外側の歯の間の山の頂（半径 + 歯の間隔の半分）を一周たどる。始点の継ぎ目のまわりは除く
+    const heights: number[] = []
+    for (let deg = 10; deg <= 350; deg += 0.5) {
+      const a = (deg * Math.PI) / 180
+      const x = 150 + Math.cos(a) * (radius + 6.4), y = 150 + Math.sin(a) * (radius + 6.4)
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0
+      heights.push(field.at(x0, y0) * (1 - fx) * (1 - fy) + field.at(x0 + 1, y0) * fx * (1 - fy)
+        + field.at(x0, y0 + 1) * (1 - fx) * fy + field.at(x0 + 1, y0 + 1) * fx * fy)
+    }
+    const mean = heights.reduce((sum, h) => sum + h, 0) / heights.length
+    const sd = Math.sqrt(heights.reduce((sum, h) => sum + (h - mean) ** 2, 0) / heights.length)
+
+    expect(sd / mean).toBeLessThan(0.01)
+  })
+
+  // 縁の土手（帯の外に盛る土手）は古い砂紋の上に乗る。帯の側の半分（縁から頂まで）は古い砂紋を消して帯の中の山と同じ形にし、
+  // 干渉は頂から外の裾だけにする。古い砂紋が透けて外側の畝がでこぼこに見えたり、隣の帯の土手と足し合わさって
+  // 盛り上がったりしたため（設計メモ §30）
+  describe('縁の土手と古い砂紋', () => {
+    // 歯 3本・間隔 12 → 外側の歯は中心から 12、溝の縁（ならす範囲）は 14.5、土手の頂は 18、土手の裾は 21.5
+    it('先に掻いた砂紋の上でも、土手の帯の側の半分は平らな砂に掻いたときと同じ高さ', () => {
+      const crossed = new SandField(100, 100)
+      rakeField(crossed, vertical(50), style)
+      rakeField(crossed, horizontal(50), style)
+      const plain = new SandField(100, 100)
+      rakeField(plain, horizontal(50), style)
+
+      for (let x = 30; x <= 70; x++) {
+        for (const y of [65, 66, 67, 68, 32, 33, 34, 35]) expect(crossed.at(x, y)).toBeCloseTo(plain.at(x, y), 5)
+      }
+    })
+
+    it('隣り合う2本の帯の間の山は、帯の中の山と同じ高さ・形', () => {
+      const field = new SandField(100, 140)
+      rakeField(field, horizontal(50), style)
+      rakeField(field, horizontal(86), style) // 帯の幅 36 だけずらした隣の帯
+
+      for (let d = -3; d <= 3; d++) {
+        const between = field.at(50, 68 + d) // 2本の帯の間の山（頂は 68）
+        const inside = field.at(50, 56 + d) // 1本目の帯の中の山（頂は 56）
+        expect(between).toBeCloseTo(inside, 2)
+      }
+    })
+  })
+
   it('後から掻いた砂紋が交差点の古い溝を消す', () => {
     const field = new SandField(100, 100)
     rakeField(field, vertical(50), style)
@@ -64,8 +142,10 @@ describe('rakeField', () => {
   })
 })
 
-// 掻く処理を分けたり範囲を絞ったりしても結果が変わらないよう、分ける前の rakeField の結果を固定する。
-// 期待値は分ける前の実装で計算した値（庭 1m × 0.8m、1m = 200 マス、歯 3本・間隔 12 マス）
+// 掻く処理を分けたり範囲を絞ったりしても結果が変わらないよう、rakeField の結果を固定する（庭 1m × 0.8m、1m = 200 マス、歯 3本・間隔 12 マス）。
+// 期待値は、盛る量を溝の断面積から決めるようにしたとき（設計メモ §30）に置き直した。それまでの点ごとに数える盛り方より、
+// 直線の土手は約 1.6% 低く（1.089 → 1.071）、輪の始点の継ぎ目のまわりの山（0.85・0.57）は他の山と同じ 1.071 にそろった。
+// 続けて縁の土手の重ね方を変えたとき（帯の側の半分は古い砂紋を消す）に合計を置き直した。下の12点の高さは変わらなかった
 describe('rakeField の結果（固定）', () => {
   const garden = { width: 1, depth: 0.8 }
   const rake = { tines: 3, spacing: 0.06 }
@@ -86,16 +166,16 @@ describe('rakeField の結果（固定）', () => {
       sumSq += v * v
       if (v !== 0) changed++
     }
-    expect(sum).toBeCloseTo(1903.997, 1)
-    expect(sumAbs).toBeCloseTo(12131.134, 1)
-    expect(sumSq).toBeCloseTo(12512.718, 1)
+    expect(sum).toBeCloseTo(1637.307, 1)
+    expect(sumAbs).toBeCloseTo(11716.998, 1)
+    expect(sumSq).toBeCloseTo(11473.914, 1)
     expect(changed).toBe(14935)
 
     // [x, y, 高さ]: 直線の土手、交差点、輪の始点の継ぎ目のまわり
     const samples = [
-      [20, 97, 0.98139], [20, 62, 1.08926], [118, 20, 1.08926], [100, 44, 0.84943],
-      [128, 74, -1.38195], [128, 86, -1.382], [134, 80, 0.84566], [122, 80, 0.57313],
-      [100, 52, -1.5], [106, 52, -1.38209], [137, 80, 0.1903], [63, 80, 0.288],
+      [20, 97, 0.96532], [20, 62, 1.07143], [118, 20, 1.07143], [100, 44, 0.66805],
+      [128, 74, -1.38195], [128, 86, -1.382], [134, 80, 1.07143], [122, 80, 1.07143],
+      [100, 52, -1.5], [106, 52, -1.38209], [137, 80, 0.24111], [63, 80, 0.23843],
     ]
     for (const [x, y, height] of samples) expect(field.at(x, y)).toBeCloseTo(height, 4)
   })
