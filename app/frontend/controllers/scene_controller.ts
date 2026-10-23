@@ -147,7 +147,9 @@ export default class extends Controller<HTMLElement> {
     window.addEventListener("pagehide", this.flushSave)
 
     const scene = new Scene()
-    scene.background = new Color(0xe8e4da)
+    // 庭のまわりの地の色は、画面の色（CSS の --ground）と揃える
+    const ground = getComputedStyle(this.element).getPropertyValue("--ground").trim()
+    scene.background = new Color(ground || "#e4e3de")
 
     // 砂紋の凹凸は低い光で陰影が出るので、太陽は低めに置く。
     // 奥から照らす逆光だと溝と山が反転して見えやすいので、仕上がりの初期の視点と同じ手前側に置く

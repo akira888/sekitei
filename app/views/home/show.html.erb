@@ -1,5 +1,32 @@
 <main class="home">
-  <h1 class="home-title">石庭</h1>
+  <div class="home-garden">
+    <%# 開いたときに一度だけ、まっすぐな砂紋と石を囲む同心円が掻かれていく。石の周りは直線を掻かない %>
+    <svg class="home-sketch" viewBox="0 0 480 300" aria-hidden="true">
+      <defs>
+        <mask id="home-sketch-around-stone">
+          <rect width="480" height="300" fill="white"/>
+          <circle cx="318" cy="150" r="96" fill="black"/>
+          <circle cx="104" cy="214" r="48" fill="black"/>
+        </mask>
+      </defs>
+      <rect class="home-sketch-sand" width="480" height="300"/>
+      <g mask="url(#home-sketch-around-stone)">
+        <% (12..288).step(12).each_with_index do |y, i| %>
+          <line class="home-sketch-line" x1="0" y1="<%= y %>" x2="480" y2="<%= y %>" pathLength="1" style="--i: <%= i %>"/>
+        <% end %>
+      </g>
+      <% (30..90).step(12).each_with_index do |r, i| %>
+        <circle class="home-sketch-line home-sketch-ring" cx="318" cy="150" r="<%= r %>" pathLength="1" style="--i: <%= i %>"/>
+      <% end %>
+      <% (24..42).step(9).each_with_index do |r, i| %>
+        <circle class="home-sketch-line home-sketch-ring" cx="104" cy="214" r="<%= r %>" pathLength="1" style="--i: <%= i + 3 %>"/>
+      <% end %>
+      <path class="home-sketch-stone" d="M92 214 C92 204 106 200 114 206 C120 212 116 222 106 223 C97 224 92 220 92 214 Z"/>
+      <path class="home-sketch-stone" d="M300 146 C302 128 326 120 338 134 C350 148 344 170 324 174 C306 178 298 162 300 146 Z"/>
+      <rect class="home-sketch-curb" x="4" y="4" width="472" height="292"/>
+    </svg>
+    <h1 class="home-title">石庭</h1>
+  </div>
   <%# 押すと空の庭を1つ作り、その庭の編集画面（uuid の URL）へ移る %>
-  <%= button_to "庭を作る", gardens_path, class: "home-create" %>
+  <%= button_to "庭を作る", gardens_path, class: "home-create button-primary", form_class: "home-create-form" %>
 </main>
