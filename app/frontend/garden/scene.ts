@@ -7,21 +7,23 @@ import type { Stone } from '../stone/stone'
 
 const VERSION = 1
 
-export type Scene = { version: typeof VERSION; shapes: Shape[]; stones: Stone[] }
+export type Gravel = { edge: boolean } // 庭の外周に砂利の縁を敷くか
+export type Scene = { version: typeof VERSION; shapes: Shape[]; stones: Stone[]; gravel: Gravel }
 
-export function toScene(shapes: Shape[], stones: Stone[]): Scene {
-  return { version: VERSION, shapes, stones }
+export function toScene(shapes: Shape[], stones: Stone[], gravel: Gravel): Scene {
+  return { version: VERSION, shapes, stones, gravel }
 }
 
 // サーバーは読めなくなる形だけを弾き、図形ごとの値までは見ないので、図形・石の中身は信じて読む
 export function parseScene(data: unknown): Scene {
   if (typeof data !== 'object' || data === null) throw new Error('scene がオブジェクトではありません')
-  const { version, shapes, stones = [] } = data as { version?: unknown; shapes?: unknown; stones?: unknown }
+  const { version, shapes, stones = [], gravel } = data as { version?: unknown; shapes?: unknown; stones?: unknown; gravel?: Partial<Gravel> }
   if (version !== VERSION) throw new Error(`読めない version の scene です: ${String(version)}`)
   if (!Array.isArray(shapes)) throw new Error('scene に図形の配列がありません')
   // 石を足す前の庭には stones がないので、石のない庭として読む
   if (!Array.isArray(stones)) throw new Error('scene の石が配列ではありません')
   // 苔の量を足す前に保存した石は、苔のない石として読む（キーを足しただけなので version は上げない）
   const readStones = (stones as Stone[]).map((stone) => ({ ...stone, params: { ...stone.params, moss: stone.params.moss ?? 0 } }))
-  return { version, shapes: shapes as Shape[], stones: readStones }
+  // 砂利を足す前に保存した庭は、見た目を変えないよう砂利なしとして読む（新しい庭はサーバーが砂利ありで作る）
+  return { version, shapes: shapes as Shape[], stones: readStones, gravel: { edge: gravel?.edge === true } }
 }

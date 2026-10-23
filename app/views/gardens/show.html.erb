@@ -60,5 +60,7 @@
     <button type="button" data-kind="straight" data-action="pointerdown->scene#startPlacing">直線</button>
     <button type="button" data-kind="concentric" data-action="pointerdown->scene#startPlacing">同心円</button>
     <button type="button" data-kind="stone" data-action="pointerdown->scene#startPlacing">石</button>
+    <%# 運んで置く項目ではなく、庭の外周の砂利の縁を敷く・外す切り替え %>
+    <button type="button" class="scene-palette-toggle" data-scene-target="gravelToggle" data-action="scene#toggleGravel">砂利の縁</button>
   </footer>
 <% end %>

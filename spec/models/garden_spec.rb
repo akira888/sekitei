@@ -12,10 +12,10 @@ RSpec.describe Garden, type: :model do
       expect(Garden.create!.uuid).not_to eq(Garden.create!.uuid)
     end
 
-    it "図形のない空の庭から始める" do
+    it "図形のない空の庭から、砂利の縁ありで始める" do
       garden = Garden.create!
 
-      expect(garden.reload.scene).to eq("version" => 1, "shapes" => [])
+      expect(garden.reload.scene).to eq("version" => 1, "shapes" => [], "gravel" => { "edge" => true })
     end
   end
 
@@ -50,7 +50,8 @@ RSpec.describe Garden, type: :model do
       "shapes が配列でない場合" => { "version" => 1, "shapes" => {} },
       "図形がオブジェクトでない場合" => { "version" => 1, "shapes" => [ 1 ] },
       "stones が配列でない場合" => { "version" => 1, "shapes" => [], "stones" => {} },
-      "石がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "stones" => [ 1 ] }
+      "石がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "stones" => [ 1 ] },
+      "砂利の設定がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "gravel" => true }
     }.each do |condition, value|
       context condition do
         let(:scene) { value }

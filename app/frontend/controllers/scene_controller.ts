@@ -16,7 +16,9 @@ import { dragShape, gripsOf, hitShape, insideGarden, pickGrip, type Grip } from 
 import { drawOverlay, MARKER_RADIUS } from "../editor/overlay"
 import { changeStoneParam, dragStone, hitStone, newStone, reshapeStone, STONE, stoneGrips, type StoneParam } from "../editor/stones"
 import { gardenToScreen, screenToGarden, topDownFrustum, type Frustum } from "../editor/top_down"
-import { parseScene, toScene } from "../garden/scene"
+import { parseScene, toScene, type Gravel } from "../garden/scene"
+import { createGardenFrame } from "../gravel/frame_mesh"
+import { FRAME_WIDTH } from "../gravel/scatter"
 import { RakePreview } from "../preview/rake_preview"
 import type { Point } from "../sand/path"
 import { SandField, rakeField } from "../sand/rake"
@@ -62,7 +64,7 @@ const randomSeed = () => Math.floor(Math.random() * 2 ** 31) // 石の形のく�
 export default class extends Controller<HTMLElement> {
   static targets = [
     "toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError",
-    "stonePanel", "stoneView", "stoneParam", "stoneParamValue",
+    "stonePanel", "stoneView", "stoneParam", "stoneParamValue", "gravelToggle",
   ]
   static values = { scene: Object, url: String }
   declare readonly toggleTarget: HTMLButtonElement
@@ -78,6 +80,7 @@ export default class extends Controller<HTMLElement> {
   declare readonly stoneViewTarget: HTMLElement // 選んだ石を横から見せる窓
   declare readonly stoneParamTargets: HTMLInputElement[] // data-param で大きさ・背の高さ・ゴツゴツ度を区別する
   declare readonly stoneParamValueTargets: HTMLOutputElement[]
+  declare readonly gravelToggleTarget: HTMLButtonElement
   declare readonly sceneValue: unknown // 保存されている scene（Rails が埋め込む）
   declare readonly urlValue: string // 保存先
 
@@ -93,6 +96,8 @@ export default class extends Controller<HTMLElement> {
 
   private shapes: Shape[] = []
   private stones: Stone[] = []
+  private gravel: Gravel = { edge: false }
+  private gravelEdge?: { visible: boolean }
   private selected?: Selection
   private drag?: Drag
   private placing?: Placing
@@ -112,6 +117,7 @@ export default class extends Controller<HTMLElement> {
     const saved = parseScene(this.sceneValue)
     this.shapes = saved.shapes
     this.stones = saved.stones
+    this.gravel = saved.gravel
     this.lastTines = inheritedTines(this.shapes)
     this.autosave = new Autosave(this.sendScene, this.showSaveResult)
     // リロードやタブを閉じたときは disconnect が呼ばれないので、ここで送れていない変更を送る
@@ -145,6 +151,13 @@ export default class extends Controller<HTMLElement> {
     scene.add(stoneLayer.group)
     this.stoneLayer = stoneLayer
     this.sideView = new StoneSideView(0xf7f5f0)
+
+    // 庭の外周の枠。砂のすぐ外の縁石は常に置き、その外の砂利の溝はパレットの横のボタンで敷く・外すを切り替える
+    const frame = createGardenFrame(GARDEN)
+    scene.add(frame.group)
+    this.disposables.push(frame)
+    this.gravelEdge = frame.gravel
+    this.syncGravel()
     this.rakePreview = new RakePreview(sand, CELLS_PER_METER, this.onPreviewFinish)
     this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
@@ -212,7 +225,9 @@ export default class extends Controller<HTMLElement> {
       const { clientWidth: width, clientHeight: height } = this.element
       if (width === 0 || height === 0 || this.paletteTarget.hidden) return
       const top = this.paletteTarget.getBoundingClientRect().bottom - this.element.getBoundingClientRect().top + TOP_BAR_GAP
-      this.frustum = topDownFrustum(GARDEN, { width, height }, TOP_DOWN_MARGIN, { top })
+      // 砂利の縁を敷いていなくても、一番外の縁石までの大きさで収める（切り替えのたびに庭の大きさが変わらないように）
+      const framed = { width: GARDEN.width + 2 * FRAME_WIDTH, depth: GARDEN.depth + 2 * FRAME_WIDTH }
+      this.frustum = topDownFrustum(framed, { width, height }, TOP_DOWN_MARGIN, { top })
       Object.assign(topDown, this.frustum)
       topDown.updateProjectionMatrix()
     }
@@ -327,6 +342,12 @@ export default class extends Controller<HTMLElement> {
     this.editSelectedStone((stone) => changeStoneParam(stone, input.dataset.param as StoneParam, Number(input.value)))
   }
 
+  toggleGravel(): void {
+    this.gravel = { edge: !this.gravel.edge }
+    this.syncGravel()
+    this.save()
+  }
+
   reshapeStone(): void {
     this.editSelectedStone((stone) => reshapeStone(stone, randomSeed()))
     this.save()
@@ -334,7 +355,7 @@ export default class extends Controller<HTMLElement> {
 
   // 操作が終わるたびに呼ぶ。ドラッグの途中など、操作の途中では呼ばない
   save(): void {
-    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones) }))
+    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones, this.gravel) }))
   }
 
   keydown(event: KeyboardEvent): void {
@@ -591,6 +612,11 @@ export default class extends Controller<HTMLElement> {
     Object.assign(this.spacingTarget, { min: SPACING.min, max: SPACING.max, step: SPACING.step })
     this.spacingTarget.value = String(shape.rake.spacing)
     this.spacingValueTarget.value = (shape.rake.spacing * 100).toFixed(1)
+  }
+
+  private syncGravel(): void {
+    if (this.gravelEdge) this.gravelEdge.visible = this.gravel.edge
+    this.gravelToggleTarget.setAttribute("aria-pressed", String(this.gravel.edge))
   }
 
   // スライダーは図形と同じく単位なしで、値をそのまま見せる
