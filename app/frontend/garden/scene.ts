@@ -21,5 +21,7 @@ export function parseScene(data: unknown): Scene {
   if (!Array.isArray(shapes)) throw new Error('scene に図形の配列がありません')
   // 石を足す前の庭には stones がないので、石のない庭として読む
   if (!Array.isArray(stones)) throw new Error('scene の石が配列ではありません')
-  return { version, shapes: shapes as Shape[], stones: stones as Stone[] }
+  // 苔の量を足す前に保存した石は、苔のない石として読む（キーを足しただけなので version は上げない）
+  const readStones = (stones as Stone[]).map((stone) => ({ ...stone, params: { ...stone.params, moss: stone.params.moss ?? 0 } }))
+  return { version, shapes: shapes as Shape[], stones: readStones }
 }
