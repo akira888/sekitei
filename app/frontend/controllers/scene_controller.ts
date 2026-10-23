@@ -178,7 +178,7 @@ export default class extends Controller<HTMLElement> {
     this.gravelEdge = frame.gravel
     this.syncGravel()
     this.rakePreview = new RakePreview(sand, CELLS_PER_METER, this.onPreviewFinish)
-    this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!)
+    this.disposables.push(sand.geometry, sand.material, sand.material.normalMap!, sand.material.map!, sand.material.userData.grainNormal)
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
 
     const perspective = new PerspectiveCamera(45, 1, 0.05, 100)

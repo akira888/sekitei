@@ -141,10 +141,8 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
     }
   }
 
-  // 1回目: ならして溝を掘り、掘った砂の量を「パスの点 × 歯」ごとに集計する。
-  // 左右には半分ずつ盛る（マス目で左右に分けて数えると、溝の中心の列が片側に寄って量が偏るため）
+  // 1回目: ならして溝を掘る
   const bucket = (j: number, i: number) => j * s.tines + i
-  const moved = new Float32Array(path.length * s.tines)
   const next = new Float32Array(BW * BH) // 新しい高さ
   const touched = new Uint8Array(BW * BH) // このストロークで高さが決まるマス
   for (let l = 0; l < next.length; l++) {
@@ -154,21 +152,25 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
     if (lifted[bucket(j, i)]) continue
     const u = lateral[l] - tineAt(i) // 歯からの横距離
     const dug = Math.abs(u) < g ? -s.depth * Math.cos((Math.PI * u) / (2 * g)) : 0
-    moved[bucket(j, i)] += -dug // 基準面から掘った分だけ（古い高さは数えない）
     next[l] = dug
     touched[l] = 1
   }
 
   // 2回目: 各歯の左右、溝の縁のすぐ外に sin の山として盛る（面積で割って体積を保つ）。
+  // 盛る量は、溝の形から決まる「単位長さあたりに掘った量」（基準面からの cos の溝の断面積）。古い高さは数えない。
+  // 左右には半分ずつ盛る。パスの点ごとに近いマスで掘った量を数えて決めると、斜めの線や曲線では点ごとに数えるマスの数が
+  // ばらつき、山の高さが畝に沿って上下した（同心円の畝のうねり、斜めの直線の粗さ。設計メモ §30）
+  const dugPerLength = (s.depth * 4 * g) / Math.PI
   // 隣の歯の盛りと重なれば足し合わさって1本の山になる。
-  // 帯の外（縁の土手）は古い砂紋の上に乗るので、盛りが厚いほど古い砂紋を埋めて消す。
-  // 単純に足すと「古い畝 + 土手」が飛び出て、古い畝が土手を越えて続いて見えるため
+  // 帯の外（縁の土手）は古い砂紋の上に乗る。帯の側の半分（縁から頂まで）は古い砂紋を消して帯の中の山と同じ形にし、
+  // 頂から外の裾だけ古い砂紋と重ねる（干渉は裾だけ）。裾では、古い溝には土手を足して埋め、古い山とは高い方を取る。
+  // 土手の形の割合で重ねていたときは、頂以外で古い砂紋が透けて交差する所の外側の畝がでこぼこに見え、
+  // 隣の帯の土手（同じ形の山）と足し合わさって帯の間の山が盛り上がった（設計メモ §30）
   const area = (2 * s.pileWidth) / Math.PI
   for (let l = 0; l < next.length; l++) {
     const j = nearest[l]
     if (j < 0) continue
     let pile = 0
-    let cover = 0 // 0..1。土手の頂上で 1（古い砂紋が完全に埋まる）
     for (let i = 0; i < s.tines; i++) {
       const u = lateral[l] - tineAt(i)
       const t = Math.abs(u) - g
@@ -177,12 +179,19 @@ export function rakeEffect(field: SandField, path: Point[], s: RakeStyle): RakeE
       // 見た目優先: 縁の土手を内側の山と同じ高さにする。内側の山は左右2本の歯から盛られるので、
       // 一番外の歯が外側に盛る量を2倍にして揃える（物理的な体積保存より一貫性を優先）
       const outerSide = (i === 0 && u < 0) || (i === s.tines - 1 && u >= 0)
-      pile += (outerSide ? 2 : 1) * (moved[bucket(j, i)] / 2 / segLen) * shape / area
-      cover = Math.max(cover, shape)
+      if (lifted[bucket(j, i)]) continue // 石の周りで持ち上げた歯は掘っていないので盛らない
+      pile += (outerSide ? 2 : 1) * (dugPerLength / 2) * shape / area
     }
     if (pile === 0) continue
-    const outside = Math.abs(lateral[l]) > edge
-    next[l] = (outside ? h[cellOf(l)] * (1 - cover) : next[l]) + pile
+    const beyond = Math.abs(lateral[l]) - edge // 帯の縁から外への距離
+    if (beyond <= 0) {
+      next[l] += pile
+    } else {
+      // 古い砂紋が残る割合。頂まで 0、裾で 1 へ
+      const keep = beyond <= s.pileWidth / 2 ? 0 : 1 - Math.sin((Math.PI * beyond) / s.pileWidth)
+      const old = h[cellOf(l)] * keep
+      next[l] = old >= 0 ? Math.max(pile, old) : pile + old
+    }
     touched[l] = 1
   }
 
