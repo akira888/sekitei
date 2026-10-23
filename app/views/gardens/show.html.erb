@@ -23,7 +23,7 @@
     <button type="button" data-scene-target="skipButton" data-action="scene#skipPreview" hidden>最後まで飛ばす</button>
     <%# 掻いた後の仕上がりと下絵を行き来する。アニメーションなしで一気に掻いた結果を見せる %>
     <button type="button" data-scene-target="toggle" data-action="scene#toggleView"></button>
-    <%# 名前を付けて完成させる。完成した庭は編集できない %>
+    <%# 名前を付けて完成させる。仕上がりの画面で角度を選んでから押す。完成した庭は編集できない %>
     <button type="button" data-scene-target="completeButton" data-action="scene#openCompletion" hidden>完成する</button>
     <%# 完成した庭を共有する。編集と鑑賞は同じ URL %>
     <button type="button" data-scene-target="copyButton" data-action="scene#copyUrl" hidden>URL をコピー</button>
@@ -37,7 +37,7 @@
         <span>名前</span>
         <input type="text" maxlength="100" size="24" required data-scene-target="completionName">
       </label>
-      <p class="scene-completion-note">完成すると、庭ができあがっていく様子が最後まで流れます。</p>
+      <p class="scene-completion-note">今の角度が、鑑賞の始まりの視点になります。完成すると、庭ができあがっていく様子が最後まで流れます。</p>
       <div class="scene-completion-actions">
         <button type="button" data-action="scene#cancelCompletion">やめる</button>
         <button type="submit">完成する</button>

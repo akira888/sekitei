@@ -46,7 +46,8 @@ class Garden < ApplicationRecord
       scene["version"].is_a?(Integer) && scene["version"].positive? &&
       objects?(scene["shapes"]) &&
       (!scene.key?("stones") || objects?(scene["stones"])) && # 石を足す前の庭には stones がない
-      (!scene.key?("gravel") || scene["gravel"].is_a?(Hash)) # 砂利を足す前の庭には gravel がない
+      (!scene.key?("gravel") || scene["gravel"].is_a?(Hash)) && # 砂利を足す前の庭には gravel がない
+      (!scene.key?("camera") || scene["camera"].is_a?(Hash)) # 鑑賞の始まりの視点は完成するときに足す
     errors.add(:scene, :invalid) unless readable
   end
 

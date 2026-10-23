@@ -51,7 +51,8 @@ RSpec.describe Garden, type: :model do
       "図形がオブジェクトでない場合" => { "version" => 1, "shapes" => [ 1 ] },
       "stones が配列でない場合" => { "version" => 1, "shapes" => [], "stones" => {} },
       "石がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "stones" => [ 1 ] },
-      "砂利の設定がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "gravel" => true }
+      "砂利の設定がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "gravel" => true },
+      "視点がオブジェクトでない場合" => { "version" => 1, "shapes" => [], "camera" => 30 }
     }.each do |condition, value|
       context condition do
         let(:scene) { value }

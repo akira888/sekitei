@@ -99,4 +99,28 @@ describe('parseScene', () => {
       expect(read({ shapes: [straight, concentric], stones: [stone] })).toMatchObject({ shapes: [straight, concentric], stones: [stone] })
     })
   })
+
+  describe('鑑賞の始まりの視点', () => {
+    it('完成したときに保存した視点を読む', () => {
+      const camera = { azimuth: 30, polar: 50, distance: 3 }
+
+      expect(parseScene({ version: 1, shapes: [], camera }).camera).toEqual(camera)
+    })
+
+    it('視点を持たない庭は、視点なしとして読む（既定の視点から見る）', () => {
+      expect(parseScene({ version: 1, shapes: [] }).camera).toBeUndefined()
+    })
+
+    it('範囲の外の視点は範囲に収める', () => {
+      expect(parseScene({ version: 1, shapes: [], camera: { azimuth: 0, polar: 0, distance: 100 } }).camera)
+        .toMatchObject({ polar: 15, distance: 5 })
+    })
+
+    it('保存するときは、視点があれば添える', () => {
+      const camera = { azimuth: 30, polar: 50, distance: 3 }
+
+      expect(toScene([], [], { edge: true }, camera)).toMatchObject({ camera })
+      expect(toScene([], [], { edge: true })).not.toHaveProperty('camera')
+    })
+  })
 })
