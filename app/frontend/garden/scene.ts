@@ -2,6 +2,7 @@ import { SPACING, TINES } from '../editor/edit'
 import { STONE } from '../editor/stones'
 import type { Shape } from '../sand/shapes'
 import type { Stone } from '../stone/stone'
+import { clampView, type CameraView } from '../view/camera'
 
 // 庭の中身（scene JSON）。サーバーに丸ごと保存し、編集・鑑賞のときに読む。
 // 図形は shapes.ts の型のまま（m 単位、配列の順番がレイヤー順）。石は図形とは別の配列に持つ（レイヤー順が効くのは図形どうしだけ）。
@@ -14,16 +15,19 @@ const VERSION = 1
 const LIMITS = { shapes: 100, stones: 30, bands: { min: 1, max: 60 } }
 
 export type Gravel = { edge: boolean } // 庭の外周に砂利の縁を敷くか
-export type Scene = { version: typeof VERSION; shapes: Shape[]; stones: Stone[]; gravel: Gravel }
+// camera は鑑賞の始まりの視点。完成したときに保存する。持たない庭は既定の視点から見る
+export type Scene = { version: typeof VERSION; shapes: Shape[]; stones: Stone[]; gravel: Gravel; camera?: CameraView }
 
-export function toScene(shapes: Shape[], stones: Stone[], gravel: Gravel): Scene {
-  return { version: VERSION, shapes, stones, gravel }
+export function toScene(shapes: Shape[], stones: Stone[], gravel: Gravel, camera?: CameraView): Scene {
+  return { version: VERSION, shapes, stones, gravel, ...(camera && { camera }) }
 }
 
 // サーバーは読めなくなる形だけを弾き、図形ごとの値までは見ないので、図形・石の中身は信じて読む
 export function parseScene(data: unknown): Scene {
   if (typeof data !== 'object' || data === null) throw new Error('scene がオブジェクトではありません')
-  const { version, shapes, stones = [], gravel } = data as { version?: unknown; shapes?: unknown; stones?: unknown; gravel?: Partial<Gravel> }
+  const { version, shapes, stones = [], gravel, camera } = data as {
+    version?: unknown; shapes?: unknown; stones?: unknown; gravel?: Partial<Gravel>; camera?: CameraView
+  }
   if (version !== VERSION) throw new Error(`読めない version の scene です: ${String(version)}`)
   if (!Array.isArray(shapes)) throw new Error('scene に図形の配列がありません')
   // 石を足す前の庭には stones がないので、石のない庭として読む
@@ -34,6 +38,7 @@ export function parseScene(data: unknown): Scene {
     stones: (stones as Stone[]).slice(0, LIMITS.stones).map(readStone),
     // 砂利を足す前に保存した庭は、見た目を変えないよう砂利なしとして読む（新しい庭はサーバーが砂利ありで作る）
     gravel: { edge: gravel?.edge === true },
+    ...(camera && { camera: clampView(camera) }),
   }
 }
 

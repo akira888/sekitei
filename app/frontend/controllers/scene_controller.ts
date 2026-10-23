@@ -31,6 +31,7 @@ import { stoneFootprint } from "../stone/footprint"
 import { StoneSideView } from "../stone/side_view"
 import type { Stone } from "../stone/stone"
 import { StoneLayer } from "../stone/stone_mesh"
+import { DEFAULT_VIEW, EDIT_LIMITS, clampView, positionToView, viewToPosition, viewingLimits, type CameraView, type ViewLimits } from "../view/camera"
 
 // 庭の実寸[m] とハイトマップの解像度（1マス ≒ 4mm）。#5 時点の仮の値
 const GARDEN = { width: 4, depth: 2 }
@@ -101,6 +102,8 @@ export default class extends Controller<HTMLElement> {
   private applyView?: () => void
   private overlay?: HTMLCanvasElement
   private frustum?: Frustum
+  private perspective?: PerspectiveCamera
+  private camera?: CameraView // 鑑賞の始まりの視点。完成するときの角度を保存する
   private fitTopDown?: () => void
 
   private shapes: Shape[] = []
@@ -130,6 +133,7 @@ export default class extends Controller<HTMLElement> {
     this.shapes = saved.shapes
     this.stones = saved.stones
     this.gravel = saved.gravel
+    this.camera = saved.camera
     this.lastTines = inheritedTines(this.shapes)
     // 完成した庭は、掻き終えた仕上がりから見せる
     this.completed = this.completedValue
@@ -178,7 +182,7 @@ export default class extends Controller<HTMLElement> {
     this.disposables.push(sketch.geometry, sketch.material, sketch.material.map!)
 
     const perspective = new PerspectiveCamera(45, 1, 0.05, 100)
-    perspective.position.set(0, 1.6, 2.6)
+    this.perspective = perspective
     // 真上から見下ろし、画面の上を奥（-z）に向ける。庭の座標の y = 0（奥）が画面の上に来る
     const topDown = new OrthographicCamera(-1, 1, 1, -1, 0.1, 10)
     topDown.position.set(0, 5, 0)
@@ -202,18 +206,21 @@ export default class extends Controller<HTMLElement> {
     overlay.addEventListener("pointerup", this.onPointerUp)
     overlay.addEventListener("pointercancel", this.onPointerUp)
 
-    // 凹凸を回り込んで確かめるためのカメラ操作。鑑賞モードの制限は #12 で決める
+    // 斜めから見るカメラの操作。いつも庭の中心を見て、平行移動はさせない。
+    // 編集中は角度を選べるよう広めに回せ、完成した庭は保存した視点の周りで少しだけ動ける（縁側から眺めるように）
     this.controls = new OrbitControls(perspective, renderer.domElement)
     this.controls.enableDamping = true
     this.controls.rotateSpeed = 0.35
-    // 地面の下に回り込んで庭が裏返らないよう、真横から約 11° 上で止める
-    this.controls.maxPolarAngle = Math.PI / 2 - 0.2
+    this.controls.enablePan = false
+    if (this.completed) this.lookFrom(this.camera ?? DEFAULT_VIEW, viewingLimits(this.camera ?? DEFAULT_VIEW))
+    else this.lookFrom(DEFAULT_VIEW, EDIT_LIMITS)
 
     let camera: PerspectiveCamera | OrthographicCamera = topDown
     this.applyView = () => {
       const sketching = this.view === "sketch"
       camera = sketching ? topDown : perspective
-      this.controls!.enabled = !sketching
+      // 完成する流れの間は、選んだ角度のまま庭ができあがるようカメラを止める
+      this.controls!.enabled = !sketching && this.completingName === undefined
       sand.visible = !sketching
       sketch.visible = sketching
       overlay.hidden = !sketching
@@ -236,7 +243,8 @@ export default class extends Controller<HTMLElement> {
       this.skipButtonTarget.hidden = this.view !== "preview" || completing
       this.toggleTarget.hidden = locked
       this.toggleTarget.textContent = sketching ? "仕上がりを見る" : "下絵に戻る"
-      this.completeButtonTarget.hidden = !sketching
+      // 「完成する」は仕上がりの画面に出す。角度を選んでから押すと、その角度が鑑賞の始まりの視点になる
+      this.completeButtonTarget.hidden = this.view !== "finished" || locked
       this.copyButtonTarget.hidden = !this.completed
       // パレットが隠れている間は帯の高さを測れないので、下絵に戻るたびに合わせ直す
       if (sketching) this.fitTopDown?.()
@@ -380,7 +388,7 @@ export default class extends Controller<HTMLElement> {
   // 操作が終わるたびに呼ぶ。ドラッグの途中など、操作の途中では呼ばない
   save(): void {
     if (this.completed) return // 完成した庭は保存しない（サーバーも断る）
-    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones, this.gravel) }))
+    this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones, this.gravel, this.camera) }))
   }
 
   keydown(event: KeyboardEvent): void {
@@ -512,6 +520,9 @@ export default class extends Controller<HTMLElement> {
       return
     }
     this.completingName = name
+    // 今の角度を鑑賞の始まりの視点として保存する（完成を送る前に settle で送り切る）
+    this.camera = clampView(positionToView(this.perspective!.position))
+    this.save()
     this.startPreview()
   }
 
@@ -530,6 +541,7 @@ export default class extends Controller<HTMLElement> {
       // ページを開き直さず、その場で完成後の画面にする（掻き終えた余韻を読み込み直しで切らないため）。
       // 名前はゆっくり浮かび上がらせる。開き直したときにサーバーが出す完成後の画面と同じ形にそろえる
       this.completed = true
+      this.lookFrom(this.camera ?? DEFAULT_VIEW, viewingLimits(this.camera ?? DEFAULT_VIEW))
       this.completingName = undefined
       this.titleTarget.textContent = name
       this.titleTarget.hidden = false
@@ -705,6 +717,22 @@ export default class extends Controller<HTMLElement> {
     Object.assign(this.spacingTarget, { min: SPACING.min, max: SPACING.max, step: SPACING.step })
     this.spacingTarget.value = String(shape.rake.spacing)
     this.spacingValueTarget.value = (shape.rake.spacing * 100).toFixed(1)
+  }
+
+  // カメラを視点に置き、動ける範囲を決める。左右の範囲がなければ一周回せる
+  private lookFrom(view: CameraView, limits: ViewLimits): void {
+    const controls = this.controls!
+    const { x, y, z } = viewToPosition(view)
+    this.perspective!.position.set(x, y, z)
+    controls.target.set(0, 0, 0)
+    const rad = (deg: number) => (deg * Math.PI) / 180
+    controls.minAzimuthAngle = limits.azimuth ? rad(limits.azimuth.min) : -Infinity
+    controls.maxAzimuthAngle = limits.azimuth ? rad(limits.azimuth.max) : Infinity
+    controls.minPolarAngle = rad(limits.polar.min)
+    controls.maxPolarAngle = rad(limits.polar.max)
+    controls.minDistance = limits.distance.min
+    controls.maxDistance = limits.distance.max
+    controls.update()
   }
 
   private syncGravel(): void {
