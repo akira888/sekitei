@@ -1,6 +1,7 @@
 import { IcosahedronGeometry, Vector3 } from 'three'
 import { SimplexNoise } from 'three/examples/jsm/math/SimplexNoise.js'
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { mulberry32 } from '../random'
 
 // 石の生成器。球の頂点を、中心からの向きごとに伸び縮みさせて石の形にする。
 // 半径 = うねり・凹凸のノイズ → 割れ面（平面）で切り落とす → 細かいざらつき。最後に軸ごとに寸法を合わせる。
@@ -216,16 +217,4 @@ function axis(positions: Float32Array, offset: number): number[] {
 function span(positions: Float32Array, offset: number): number {
   const values = axis(positions, offset)
   return Math.max(...values) - Math.min(...values)
-}
-
-// seed から 0〜1 の乱数を順に出す（小さく速い擬似乱数）
-function mulberry32(seed: number): () => number {
-  let a = seed >>> 0
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
 }

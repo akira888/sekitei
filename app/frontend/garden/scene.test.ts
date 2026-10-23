@@ -15,7 +15,8 @@ const stone: Stone = {
 
 describe('toScene', () => {
   it('図形と石の配列に version 1 を添えて、保存する形にする', () => {
-    expect(toScene([straight, concentric], [stone])).toEqual({ version: 1, shapes: [straight, concentric], stones: [stone] })
+    expect(toScene([straight, concentric], [stone], { edge: true }))
+      .toEqual({ version: 1, shapes: [straight, concentric], stones: [stone], gravel: { edge: true } })
   })
 })
 
@@ -41,6 +42,15 @@ describe('parseScene', () => {
     const data = { version: 1, shapes: [], stones: [{ ...stone, params: withoutMoss }] }
 
     expect(parseScene(data).stones[0].params).toEqual({ ...withoutMoss, moss: 0 })
+  })
+
+  it('砂利の縁の設定を読む', () => {
+    expect(parseScene({ version: 1, shapes: [], gravel: { edge: true } }).gravel).toEqual({ edge: true })
+    expect(parseScene({ version: 1, shapes: [], gravel: { edge: false } }).gravel).toEqual({ edge: false })
+  })
+
+  it('砂利を足す前に保存した庭は、見た目を変えないよう砂利なしとして読む', () => {
+    expect(parseScene({ version: 1, shapes: [] }).gravel).toEqual({ edge: false })
   })
 
   it('石の配列が配列でない scene はエラーにする', () => {

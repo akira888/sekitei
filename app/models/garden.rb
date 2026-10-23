@@ -3,7 +3,8 @@
 # サーバーはクライアントが読めなくなる形だけを弾き、図形ごとの値までは見ない（TS の型と二重に持たないため）
 class Garden < ApplicationRecord
   attribute :uuid, default: -> { SecureRandom.uuid }
-  attribute :scene, default: -> { { "version" => 1, "shapes" => [] } }
+  # 新しい庭は空の砂から、砂利の縁ありで始める
+  attribute :scene, default: -> { { "version" => 1, "shapes" => [], "gravel" => { "edge" => true } } }
 
   validate :scene_must_be_readable
 
@@ -18,7 +19,8 @@ class Garden < ApplicationRecord
     readable = scene.is_a?(Hash) &&
       scene["version"].is_a?(Integer) && scene["version"].positive? &&
       objects?(scene["shapes"]) &&
-      (!scene.key?("stones") || objects?(scene["stones"])) # 石を足す前の庭には stones がない
+      (!scene.key?("stones") || objects?(scene["stones"])) && # 石を足す前の庭には stones がない
+      (!scene.key?("gravel") || scene["gravel"].is_a?(Hash)) # 砂利を足す前の庭には gravel がない
     errors.add(:scene, :invalid) unless readable
   end
 

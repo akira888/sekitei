@@ -147,6 +147,18 @@ body {
   touch-action: none;
 }
 
+/* 運んで置く項目と区別するため、区切り線を入れ、押した状態（敷いている）を色で見せる */
+.scene-palette .scene-palette-toggle {
+  margin-left: 6px;
+  cursor: pointer;
+  box-shadow: -7px 0 0 -6px #c9c0ae;
+}
+
+.scene-palette .scene-palette-toggle[aria-pressed="true"] {
+  background: #5a5246;
+  color: #fff;
+}
+
 .scene-save-error {
   position: absolute;
   z-index: 1;
