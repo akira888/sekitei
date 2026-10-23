@@ -12,5 +12,7 @@ Rails.application.routes.draw do
   # Defines the root path route ("/")
   root "home#show"
 
-  resources :gardens, only: %i[create show update], param: :uuid
+  resources :gardens, only: %i[create show update], param: :uuid do
+    resource :completion, only: :create # 名前を付けて完成させる
+  end
 end

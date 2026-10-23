@@ -65,4 +65,38 @@ describe('parseScene', () => {
     expect(() => parseScene({ version: 1 })).toThrow()
     expect(() => parseScene(null)).toThrow()
   })
+
+  // 共有された庭を開いた人の画面が固まらないよう、読むときに極端な値を範囲に収める
+  describe('極端な値', () => {
+    const read = (data: object) => parseScene({ version: 1, shapes: [], ...data })
+
+    it('図形は 100個、石は 30個までを読む（後ろは捨てる）', () => {
+      const scene = read({ shapes: Array(150).fill(straight), stones: Array(50).fill(stone) })
+
+      expect(scene.shapes).toHaveLength(100)
+      expect(scene.stones).toHaveLength(30)
+    })
+
+    it('帯・輪の数は 1〜60、歯の本数と間隔は編集画面と同じ範囲に収める', () => {
+      const scene = read({
+        shapes: [
+          { ...straight, rows: 100000, rake: { tines: 500, spacing: 5 } },
+          { ...concentric, rings: -3, rake: { tines: 0, spacing: 0 } },
+        ],
+      })
+
+      expect(scene.shapes[0]).toMatchObject({ rows: 60, rake: { tines: 10, spacing: 0.1 } })
+      expect(scene.shapes[1]).toMatchObject({ rings: 1, rake: { tines: 2, spacing: 0.03 } })
+    })
+
+    it('石の大きさ・背の高さ・ゴツゴツ度・苔は、編集画面のスライダーと同じ範囲に収める', () => {
+      const scene = read({ stones: [{ ...stone, params: { size: 30, tallness: 0, roughness: 9, moss: -1, seed: 7 } }] })
+
+      expect(scene.stones[0].params).toEqual({ size: 1.2, tallness: 0.25, roughness: 1, moss: 0, seed: 7 })
+    })
+
+    it('範囲の中の値は変えない', () => {
+      expect(read({ shapes: [straight, concentric], stones: [stone] })).toMatchObject({ shapes: [straight, concentric], stones: [stone] })
+    })
+  })
 })

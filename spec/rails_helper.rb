@@ -67,6 +67,9 @@ RSpec.configure do |config|
 
   # Filter lines from Rails gems in backtraces.
   config.filter_rails_from_backtrace!
+
+  # 回数制限の記録は例ごとに消す（同じ IP からのリクエストが前の例の分まで数えられないように）
+  config.before { Rails.application.config.x.rate_limit_store.clear }
   # arbitrary gems may also be filtered via:
   # config.filter_gems_from_backtrace("gem name")
 end

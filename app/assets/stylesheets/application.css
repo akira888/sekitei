@@ -195,3 +195,67 @@ body {
   font-size: 15px;
   cursor: pointer;
 }
+
+/* 完成した庭の名前。左上に、静かな明朝で出す */
+.scene-title {
+  position: absolute;
+  z-index: 1;
+  top: 12px;
+  left: 16px;
+  margin: 0;
+  font: 500 20px/1.4 "Hiragino Mincho ProN", "Yu Mincho", serif;
+  color: #3f3a32;
+}
+
+/* 完成した瞬間に、名前をゆっくり浮かび上がらせる */
+.scene-title-appearing {
+  animation: scene-title-appear 2.4s ease-out both;
+}
+
+/* 名前が浮かび上がりきってから、右上のボタンを続いて出す */
+.scene-actions-after-title {
+  animation: scene-title-appear 0.8s ease-out 2.4s both;
+}
+
+@keyframes scene-title-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* 完成させる前に名前を入れる画面 */
+.scene-completion {
+  max-width: 360px;
+  padding: 16px 20px;
+  border: 1px solid #c9c0ae;
+  border-radius: 6px;
+  font: 13px/1.6 system-ui, sans-serif;
+  color: #3f3a32;
+}
+
+.scene-completion::backdrop {
+  background: rgb(0 0 0 / 0.25);
+}
+
+.scene-completion p {
+  margin: 0 0 12px;
+}
+
+.scene-completion-name {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.scene-completion-note {
+  font-size: 12px;
+  color: #7a7266;
+}
+
+.scene-completion-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}

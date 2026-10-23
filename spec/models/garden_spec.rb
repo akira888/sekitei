@@ -63,4 +63,78 @@ RSpec.describe Garden, type: :model do
       end
     end
   end
+
+  describe "#complete" do
+    subject(:garden) { Garden.create! }
+
+    it "名前を付けて完成させる。前後の空白は除く" do
+      expect(garden.complete("  石の庭  ")).to be(true)
+
+      garden.reload
+      expect(garden.name).to eq("石の庭")
+      expect(garden.completed_at).to be_present
+      expect(garden).to be_completed
+    end
+
+    it "名前は 100文字まで付けられる" do
+      expect(garden.complete("石" * 100)).to be(true)
+    end
+
+    {
+      "名前が空の場合" => "",
+      "名前が空白だけの場合" => "   ",
+      "名前が 100文字を超える場合" => "石" * 101
+    }.each do |condition, name|
+      context condition do
+        it "完成させない" do
+          expect(garden.complete(name)).to be(false)
+          expect(garden.errors).to include(:name)
+          expect(garden.reload).not_to be_completed
+        end
+      end
+    end
+
+    it "完成させる前は名前がなくてよい" do
+      expect(Garden.create!).to be_valid
+    end
+
+    context "完成した庭の場合" do
+      before { garden.complete("石の庭") }
+
+      it "もう一度は完成させない" do
+        expect(garden.complete("別の名前")).to be(false)
+        expect(garden.reload.name).to eq("石の庭")
+      end
+
+      it "scene を変えられない" do
+        garden.scene = { "version" => 1, "shapes" => [ { "type" => "straight" } ] }
+
+        expect(garden).not_to be_valid
+        expect(garden.errors).to be_of_kind(:scene, :completed)
+      end
+    end
+  end
+
+  # 共有された庭を開いた人の画面が重くならないよう、また保存の送信の上限（keepalive の 64KiB）に合わせて上限を設ける
+  describe "scene の大きさ" do
+    let(:shapes) { Array.new(count) { { "type" => "straight", "note" => "x" * 100 } } }
+    subject(:garden) { Garden.new(scene: { "version" => 1, "shapes" => shapes }) }
+
+    context "JSON にして 64KiB 以内の場合" do
+      let(:count) { 400 } # 約 52KB
+
+      it "保存できる" do
+        expect(garden).to be_valid
+      end
+    end
+
+    context "JSON にして 64KiB を超える場合" do
+      let(:count) { 600 } # 約 78KB
+
+      it "保存できない" do
+        expect(garden).not_to be_valid
+        expect(garden.errors).to be_of_kind(:scene, :too_large)
+      end
+    end
+  end
 end
