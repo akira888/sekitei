@@ -96,4 +96,87 @@ RSpec.describe "Gardens", type: :request do
       end
     end
   end
+
+  describe "完成した庭" do
+    let(:garden) { Garden.create!(scene: { "version" => 1, "shapes" => [ straight ] }).tap { _1.complete("石の庭") } }
+
+    it "GET は完成した庭として、名前と完成済みの印を埋め込んで表示する" do
+      get "/gardens/#{garden.uuid}"
+
+      expect(response).to have_http_status(:ok)
+      editor = Nokogiri::HTML(response.body).at_css("[data-controller='scene']")
+      expect(editor["data-scene-completed-value"]).to eq("true")
+      assert_select "h1", text: "石の庭"
+    end
+
+    it "PATCH は保存せずに 403 を返す" do
+      patch "/gardens/#{garden.uuid}", params: { scene: { "version" => 1, "shapes" => [] } }, as: :json
+
+      expect(response).to have_http_status(:forbidden)
+      expect(garden.reload.scene["shapes"]).to eq([ straight ])
+    end
+  end
+
+  describe "POST /gardens/:uuid/completion" do
+    let(:garden) { Garden.create! }
+
+    context "名前を送った場合" do
+      it "名前を付けて完成させ、204 を返す" do
+        post "/gardens/#{garden.uuid}/completion", params: { name: "石の庭" }, as: :json
+
+        expect(response).to have_http_status(:no_content)
+        expect(garden.reload).to be_completed
+        expect(garden.name).to eq("石の庭")
+      end
+    end
+
+    context "名前が空の場合" do
+      it "完成させずに 422 を返す" do
+        post "/gardens/#{garden.uuid}/completion", params: { name: "" }, as: :json
+
+        expect(response).to have_http_status(:unprocessable_content)
+        expect(garden.reload).not_to be_completed
+      end
+    end
+
+    context "完成した庭の場合" do
+      before { garden.complete("石の庭") }
+
+      it "名前を変えずに 409 を返す" do
+        post "/gardens/#{garden.uuid}/completion", params: { name: "別の名前" }, as: :json
+
+        expect(response).to have_http_status(:conflict)
+        expect(garden.reload.name).to eq("石の庭")
+      end
+    end
+  end
+
+  # 共有が始まるので、1つの IP からの作成・保存・完成の回数を制限する
+  describe "回数の制限" do
+    let(:garden) { Garden.create! }
+
+    it "庭を作るのは 3分に 10回まで" do
+      10.times { post gardens_path }
+      expect(response).to have_http_status(:see_other)
+
+      post gardens_path
+      expect(response).to have_http_status(:too_many_requests)
+    end
+
+    it "保存は 1分に 120回まで" do
+      120.times { patch "/gardens/#{garden.uuid}", params: { scene: { "version" => 1, "shapes" => [] } }, as: :json }
+      expect(response).to have_http_status(:no_content)
+
+      patch "/gardens/#{garden.uuid}", params: { scene: { "version" => 1, "shapes" => [] } }, as: :json
+      expect(response).to have_http_status(:too_many_requests)
+    end
+
+    it "完成は 1分に 10回まで" do
+      10.times { post "/gardens/#{garden.uuid}/completion", params: { name: "" }, as: :json }
+      expect(response).to have_http_status(:unprocessable_content)
+
+      post "/gardens/#{garden.uuid}/completion", params: { name: "石の庭" }, as: :json
+      expect(response).to have_http_status(:too_many_requests)
+    end
+  end
 end

@@ -10,12 +10,14 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_22_011353) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_23_004732) do
   create_table "gardens", force: :cascade do |t|
     t.string "uuid", limit: 36, null: false
     t.json "scene", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "name", limit: 100
+    t.datetime "completed_at"
     t.index ["uuid"], name: "index_gardens_on_uuid", unique: true
   end
 end

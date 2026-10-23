@@ -1,6 +1,9 @@
 # 庭を作り、uuid の URL で編集する。保存はエディタが操作のたびに scene を JSON で PATCH する
 class GardensController < ApplicationController
   before_action :set_garden, only: %i[show update]
+  # 共有が始まるので、1つの IP からの作成・保存の回数を制限する
+  rate_limit to: 10, within: 3.minutes, only: :create, store: Rails.application.config.x.rate_limit_store
+  rate_limit to: 120, within: 1.minute, only: :update, store: Rails.application.config.x.rate_limit_store
 
   def create
     garden = Garden.create!
@@ -13,7 +16,10 @@ class GardensController < ApplicationController
     no_store
   end
 
+  # 完成した庭は編集できない
   def update
+    return head :forbidden if @garden.completed?
+
     if @garden.update(scene: params.expect(scene: {}).to_h)
       head :no_content
     else

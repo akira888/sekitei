@@ -111,4 +111,41 @@ describe('Autosave', () => {
       expect(server.bodies()).toEqual(['a', 'b'])
     })
   })
+
+  // 完成を送る前に、保存をすべて送り終えておく（完成した後に古い保存が届くとサーバーが断るため）
+  describe('settle', () => {
+    it('送るものがなければ、すぐに保存済みとして終わる', async () => {
+      const { autosave } = setup()
+
+      await expect(autosave.settle()).resolves.toBe(true)
+    })
+
+    it('送信中と、その間の変更を送り終えるまで待つ', async () => {
+      const { server, autosave } = setup()
+      autosave.save('a')
+      autosave.save('b')
+      let settled: boolean | undefined
+      void autosave.settle().then((saved) => (settled = saved))
+
+      await server.respond(0, true)
+      expect(server.bodies()).toEqual(['a', 'b'])
+      expect(settled).toBeUndefined()
+
+      await server.respond(1, true)
+      expect(settled).toBe(true)
+    })
+
+    it('保存に失敗して残っていた変更は送り直し、それも失敗したら保存できなかったとして終わる', async () => {
+      const { server, autosave } = setup()
+      autosave.save('a')
+      await server.respond(0, false)
+      let settled: boolean | undefined
+      void autosave.settle().then((saved) => (settled = saved))
+      await new Promise((resolve) => setTimeout(resolve, 0))
+
+      expect(server.bodies()).toEqual(['a', 'a'])
+      await server.respond(1, false)
+      expect(settled).toBe(false)
+    })
+  })
 })

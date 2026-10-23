@@ -65,8 +65,9 @@ export default class extends Controller<HTMLElement> {
   static targets = [
     "toggle", "previewButton", "skipButton", "panel", "tines", "spacing", "spacingValue", "palette", "saveError",
     "stonePanel", "stoneView", "stoneParam", "stoneParamValue", "gravelToggle",
+    "completeButton", "copyButton", "completionDialog", "completionName", "completionError", "title",
   ]
-  static values = { scene: Object, url: String }
+  static values = { scene: Object, url: String, completed: Boolean, completionUrl: String }
   declare readonly toggleTarget: HTMLButtonElement
   declare readonly previewButtonTarget: HTMLButtonElement
   declare readonly skipButtonTarget: HTMLButtonElement
@@ -83,6 +84,14 @@ export default class extends Controller<HTMLElement> {
   declare readonly gravelToggleTarget: HTMLButtonElement
   declare readonly sceneValue: unknown // 保存されている scene（Rails が埋め込む）
   declare readonly urlValue: string // 保存先
+  declare readonly completedValue: boolean // 開いたときに完成していた庭か（Rails が埋め込む）
+  declare readonly completionUrlValue: string // 完成させる送り先
+  declare readonly completeButtonTarget: HTMLButtonElement
+  declare readonly copyButtonTarget: HTMLButtonElement
+  declare readonly completionDialogTarget: HTMLDialogElement
+  declare readonly completionNameTarget: HTMLInputElement
+  declare readonly completionErrorTarget: HTMLElement
+  declare readonly titleTarget: HTMLElement // 完成した庭の名前
 
   private renderer?: WebGLRenderer
   private controls?: OrbitControls
@@ -107,6 +116,9 @@ export default class extends Controller<HTMLElement> {
   private audio?: AudioContext // 最初のプレビューで作り、画面を離れるまで使い回す
   private sketchDirty = false // 下絵を描き直す必要がある（ドラッグ中は描画のフレームごとにまとめて描く）
   private sandDirty = false // 仕上がりに切り替えたときに掻き直す必要がある
+  private completed = false // 完成した庭。編集させず、仕上がりを鑑賞する画面にする
+  // 完成する流れの途中なら、付ける名前。飛ばせないプレビューで庭を作り上げてから、完成をサーバーへ送る
+  private completingName?: string
   private stonesDirty = false // 石の Mesh を置き直す必要がある（スライダーの途中は描画のフレームごとにまとめて作り直す）
   private stoneLayer?: StoneLayer
   private outlines?: Point[][] // 石ごとの砂の高さでの輪郭[m]。石が変わったら作り直す（stonesChanged）
@@ -119,6 +131,9 @@ export default class extends Controller<HTMLElement> {
     this.stones = saved.stones
     this.gravel = saved.gravel
     this.lastTines = inheritedTines(this.shapes)
+    // 完成した庭は、掻き終えた仕上がりから見せる
+    this.completed = this.completedValue
+    if (this.completed) this.view = "finished"
     this.autosave = new Autosave(this.sendScene, this.showSaveResult)
     // リロードやタブを閉じたときは disconnect が呼ばれないので、ここで送れていない変更を送る
     window.addEventListener("pagehide", this.flushSave)
@@ -210,10 +225,19 @@ export default class extends Controller<HTMLElement> {
         console.info(`[sekitei] 全面の掻き直し: ${Math.round(performance.now() - startedAt)}ms`)
         this.sandDirty = false
       }
-      this.previewButtonTarget.hidden = this.view === "preview"
-      this.previewButtonTarget.textContent = this.view === "finished" ? "もう一度プレビュー" : "プレビュー"
-      this.skipButtonTarget.hidden = this.view !== "preview"
+      // 完成した庭と、完成する流れの途中は、下絵に戻らない。
+      // 飛ばせないのは「完成する」を押した後の1回だけ（庭を作り上げて完成とするため）。完成した庭を見る人は飛ばせる
+      const completing = this.completingName !== undefined
+      const locked = this.completed || completing
+      this.previewButtonTarget.hidden = this.view === "preview" || completing
+      this.previewButtonTarget.textContent = this.completed
+        ? "できあがる様子を見る"
+        : this.view === "finished" ? "もう一度プレビュー" : "プレビュー"
+      this.skipButtonTarget.hidden = this.view !== "preview" || completing
+      this.toggleTarget.hidden = locked
       this.toggleTarget.textContent = sketching ? "仕上がりを見る" : "下絵に戻る"
+      this.completeButtonTarget.hidden = !sketching
+      this.copyButtonTarget.hidden = !this.completed
       // パレットが隠れている間は帯の高さを測れないので、下絵に戻るたびに合わせ直す
       if (sketching) this.fitTopDown?.()
     }
@@ -355,6 +379,7 @@ export default class extends Controller<HTMLElement> {
 
   // 操作が終わるたびに呼ぶ。ドラッグの途中など、操作の途中では呼ばない
   save(): void {
+    if (this.completed) return // 完成した庭は保存しない（サーバーも断る）
     this.autosave?.save(JSON.stringify({ scene: toScene(this.shapes, this.stones, this.gravel) }))
   }
 
@@ -457,11 +482,79 @@ export default class extends Controller<HTMLElement> {
     this.rakePreview?.skip()
   }
 
-  // 最後まで掻き終えたら（飛ばしたときも）、仕上がりの画面に留まる
+  // 最後まで掻き終えたら（飛ばしたときも）、仕上がりの画面に留まる。完成する流れの途中なら、ここで完成を送る
   private onPreviewFinish = (): void => {
     this.sandDirty = false
     this.view = "finished"
     this.applyView?.()
+    if (this.completingName !== undefined) void this.sendCompletion(this.completingName)
+  }
+
+  // 「完成する」。名前を入れる画面を開く
+  openCompletion(): void {
+    this.select(undefined)
+    this.completionErrorTarget.hidden = true
+    this.completionDialogTarget.showModal()
+  }
+
+  cancelCompletion(): void {
+    this.completionDialogTarget.close()
+  }
+
+  // 名前を確定したら、飛ばせないプレビューで庭を作り上げる。完成をサーバーへ送るのは掻き終えてから
+  // （途中でページを離れたら完成しない。設計メモ §28）
+  confirmCompletion(event: SubmitEvent): void {
+    const name = this.completionNameTarget.value.trim()
+    if (name === "") {
+      event.preventDefault() // 空白だけの名前では閉じない
+      this.completionNameTarget.value = ""
+      this.completionNameTarget.reportValidity()
+      return
+    }
+    this.completingName = name
+    this.startPreview()
+  }
+
+  // 送れていない保存をすべて送ってから完成を送り、完成した庭として開き直す
+  private async sendCompletion(name: string): Promise<void> {
+    const saved = (await this.autosave?.settle()) ?? true
+    const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content ?? ""
+    const response = saved
+      ? await fetch(this.completionUrlValue, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Accept": "application/json", "X-CSRF-Token": token },
+        body: JSON.stringify({ name }),
+      }).catch(() => undefined)
+      : undefined
+    if (response?.ok) {
+      // ページを開き直さず、その場で完成後の画面にする（掻き終えた余韻を読み込み直しで切らないため）。
+      // 名前はゆっくり浮かび上がらせる。開き直したときにサーバーが出す完成後の画面と同じ形にそろえる
+      this.completed = true
+      this.completingName = undefined
+      this.titleTarget.textContent = name
+      this.titleTarget.hidden = false
+      this.titleTarget.classList.add("scene-title-appearing")
+      // ボタンは、名前が浮かび上がってから続いて出す（名前を先に見せる）
+      this.previewButtonTarget.parentElement?.classList.add("scene-actions-after-title")
+      this.applyView?.()
+      return
+    }
+    // 完成できなければ、完成する前の仕上がりの画面に戻し、もう一度「完成する」から試せるようにする
+    this.completingName = undefined
+    this.completionErrorTarget.hidden = false
+    this.applyView?.()
+  }
+
+  // 完成した庭の URL をコピーする（編集と鑑賞は同じ URL。完成した庭は編集できない）
+  async copyUrl(): Promise<void> {
+    const button = this.copyButtonTarget
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      button.textContent = "コピーしました"
+    } catch {
+      button.textContent = "コピーできませんでした"
+    }
+    setTimeout(() => (button.textContent = "URL をコピー"), 2000)
   }
 
   // 目印・ハンドルをつかめばその図形を選んでドラッグを始め、それ以外はクリックした地点で一番上の図形を選ぶ
