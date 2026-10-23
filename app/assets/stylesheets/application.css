@@ -1,19 +1,75 @@
 /*
- * This is a manifest file that'll be compiled into application.css.
- *
- * With Propshaft, assets are served efficiently without preprocessing steps. You can still include
- * application-wide styles in this file, but keep in mind that CSS precedence will follow the standard
- * cascading order, meaning styles declared later in the document or manifest will override earlier ones,
- * depending on specificity.
- *
- * Consider organizing styles into separate files for maintainability.
+ * 色と書体は :root の変数にまとめる
  */
+
+:root {
+  --ground: #e4e3de; /* 庭のまわりの地。3D の背景も同じ色（scene_controller） */
+  --sand: #d9d2c3; /* 下絵の砂と同じ色 */
+  --ink: #2b2a27; /* 墨 */
+  --ink-soft: #6d6a62;
+  --curb: #b9b6ad; /* 縁石の灰。枠線に使う */
+  --surface: rgb(240 239 235 / 0.92);
+  --primary: #4d5a3c; /* 苔。先へ進むボタンだけを塗る */
+  --on-primary: #f1f0ea;
+  --danger: #9a3a22;
+
+  --font-mincho: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --font-ui: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif;
+}
 
 html,
 body {
   margin: 0;
   height: 100%;
 }
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font: 13px/1.5 var(--font-ui);
+}
+
+/* ボタンは細い枠だけ。先へ進むボタン（.button-primary）だけを塗る */
+button {
+  padding: 4px 12px;
+  border: 1px solid var(--curb);
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--ink-soft);
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.button-primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+input[type="text"] {
+  padding: 4px 8px;
+  border: 1px solid var(--curb);
+  border-radius: 3px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+}
+
+input[type="range"] {
+  accent-color: var(--ink-soft);
+}
+
+/* ---- 編集・鑑賞 ---- */
 
 .scene {
   position: relative;
@@ -41,7 +97,7 @@ body {
 .scene-actions {
   position: absolute;
   z-index: 1;
-  top: 16px;
+  top: 12px;
   right: 16px;
   display: flex;
   gap: 8px;
@@ -55,11 +111,10 @@ body {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  background: rgb(255 255 255 / 0.85);
-  border: 1px solid #c9c0ae;
-  border-radius: 6px;
-  font: 13px/1.4 system-ui, sans-serif;
-  color: #3f3a32;
+  background: var(--surface);
+  border: 1px solid var(--curb);
+  border-radius: 4px;
+  color: var(--ink);
 }
 
 /* display: flex が hidden 属性より強いので、隠すときを明示する */
@@ -70,7 +125,7 @@ body {
 }
 
 .scene-panel {
-  top: 48px;
+  top: 60px;
   right: 16px;
   flex-direction: column;
   min-width: 220px;
@@ -79,7 +134,7 @@ body {
 .scene-stone-panel {
   position: absolute;
   z-index: 1;
-  top: 48px;
+  top: 60px;
   right: 16px;
   display: flex;
   flex-direction: column;
@@ -94,7 +149,7 @@ body {
 /* 下の WebGL を透かして、選んだ石の横からの姿を見せる。背景を付けない */
 .scene-stone-view {
   height: 160px;
-  border: 1px solid #c9c0ae; /* WebGL は四角く描くので角は丸めない */
+  border: 1px solid var(--curb); /* WebGL は四角く描くので角は丸めない */
 }
 
 .scene-panel-body {
@@ -127,11 +182,17 @@ body {
   flex-shrink: 0;
   width: 4.5em;
   white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.scene-panel-row > button {
+  padding: 0 8px;
 }
 
 .scene-panel-row output {
   min-width: 3.5em;
   text-align: center;
+  font-variant-numeric: tabular-nums;
 }
 
 .scene-panel-row input[type="range"] {
@@ -141,81 +202,81 @@ body {
 
 .scene-panel-delete {
   align-self: flex-start;
-  color: #a3361f;
+  color: var(--danger);
 }
 
 /* 上の帯の中央。右上の操作ボタンと同じ高さに揃え、庭はこの下に収める（scene_controller の fitTopDown） */
 .scene-palette {
-  top: 12px;
+  top: 10px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 4px 6px;
+  padding: 3px;
+  gap: 3px;
 }
 
 .scene-palette button {
-  padding: 3px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 12px 3px 10px;
+  border-color: transparent;
+  background: transparent;
   cursor: grab;
   touch-action: none;
+}
+
+/* 図形を小さな線画で見せる */
+.scene-palette-icon {
+  width: 20px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.scene-palette-icon-stone {
+  fill: currentColor;
+  stroke: none;
 }
 
 /* 運んで置く項目と区別するため、区切り線を入れ、押した状態（敷いている）を色で見せる */
 .scene-palette .scene-palette-toggle {
   margin-left: 6px;
+  padding-left: 12px;
   cursor: pointer;
-  box-shadow: -7px 0 0 -6px #c9c0ae;
+  box-shadow: -7px 0 0 -6px var(--curb);
 }
 
 .scene-palette .scene-palette-toggle[aria-pressed="true"] {
-  background: #5a5246;
-  color: #fff;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--ground);
 }
 
 .scene-save-error {
   position: absolute;
   z-index: 1;
-  top: 16px;
+  top: 60px;
   left: 16px;
   margin: 0;
   padding: 6px 10px;
-  background: rgb(255 255 255 / 0.9);
-  border: 1px solid #d3a597;
-  border-radius: 6px;
-  font: 13px/1.4 system-ui, sans-serif;
-  color: #a3361f;
-}
-
-.home {
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 32px;
-  min-height: 100dvh;
-  background: #e8e4da;
-  font-family: system-ui, sans-serif;
-  color: #3f3a32;
-}
-
-.home-title {
-  margin: 0;
-  font-weight: 400;
-  letter-spacing: 0.4em;
-}
-
-.home-create {
-  padding: 10px 28px;
-  font-size: 15px;
-  cursor: pointer;
+  background: var(--surface);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--danger);
 }
 
 /* 完成した庭の名前。左上に、静かな明朝で出す */
 .scene-title {
   position: absolute;
   z-index: 1;
-  top: 12px;
-  left: 16px;
+  top: 10px;
+  left: 20px;
   margin: 0;
-  font: 500 20px/1.4 "Hiragino Mincho ProN", "Yu Mincho", serif;
-  color: #3f3a32;
+  font: 500 22px/1.4 var(--font-mincho);
+  letter-spacing: 0.08em;
+  color: var(--ink);
 }
 
 /* 完成した瞬間に、名前をゆっくり浮かび上がらせる */
@@ -238,35 +299,133 @@ body {
 /* 完成させる前に名前を入れる画面 */
 .scene-completion {
   max-width: 360px;
-  padding: 16px 20px;
-  border: 1px solid #c9c0ae;
-  border-radius: 6px;
-  font: 13px/1.6 system-ui, sans-serif;
-  color: #3f3a32;
+  padding: 20px 24px;
+  border: 1px solid var(--curb);
+  border-radius: 4px;
+  background: var(--ground);
+  color: var(--ink);
+  line-height: 1.7;
 }
 
 .scene-completion::backdrop {
-  background: rgb(0 0 0 / 0.25);
+  background: rgb(43 42 39 / 0.3);
 }
 
 .scene-completion p {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
 }
 
 .scene-completion-name {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+}
+
+.scene-completion-name input {
+  flex: 1;
+  font-family: var(--font-mincho);
+  font-size: 15px;
 }
 
 .scene-completion-note {
   font-size: 12px;
-  color: #7a7266;
+  color: var(--ink-soft);
 }
 
 .scene-completion-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ---- TOP ---- */
+
+/* 線画の庭の右に、縦書きの題を置く（右から左へ読む並び） */
+.home {
+  display: grid;
+  place-content: center;
+  justify-items: start;
+  gap: 28px;
+  min-height: 100dvh;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.home-garden {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(20px, 5vw, 56px);
+}
+
+.home-sketch {
+  width: min(480px, 68vw);
+  height: auto;
+}
+
+.home-sketch-sand {
+  fill: var(--sand);
+}
+
+.home-sketch-curb {
+  fill: none;
+  stroke: var(--curb);
+  stroke-width: 8;
+}
+
+.home-sketch-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-opacity: 0.32;
+  stroke-width: 1;
+}
+
+.home-sketch-stone {
+  fill: #5d5a52;
+}
+
+.home-title {
+  margin: 0;
+  writing-mode: vertical-rl;
+  font: 500 clamp(40px, 7vw, 64px)/1 var(--font-mincho);
+  letter-spacing: 0.5em;
+}
+
+.home-create-form {
+  margin: 0;
+}
+
+.home-create {
+  padding: 10px 32px;
+  font-size: 15px;
+  letter-spacing: 0.1em;
+}
+
+/* 開いたときに一度だけ、砂紋を上から順に左から右へ掻き、続いて石の周りを掻く */
+@media (prefers-reduced-motion: no-preference) {
+  .home-sketch-line {
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: home-rake 1.4s cubic-bezier(0.45, 0, 0.3, 1) calc(var(--i) * 70ms + 200ms) forwards;
+  }
+
+  .home-sketch-ring {
+    animation-delay: calc(var(--i) * 120ms + 1900ms);
+  }
+
+  .home-sketch-stone {
+    animation: home-stone 1.2s ease-out 1.5s both;
+  }
+}
+
+@keyframes home-rake {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes home-stone {
+  from {
+    opacity: 0;
+  }
 }
